@@ -1,0 +1,67 @@
+- Specify arg
+  - YAML inheritance
+    - MERGE
+    - config library
+    - no anchor becuase not deep
+    - replace list
+  - variable interpolation: 
+    - bash syntax
+    - after MERGE, so config lib can refer to not yet defined
+    - can refer to environment variable
+  - python resolver
+    - backticks, special variables CFG and ENV
+    - order is MERGE including cli, interpolation, python resolver
+  - object
+    - TYPE
+    - if you only want cls, use default yaml syntax
+    - TYPE can be instance method, then you can specify CLASS. Note class method you dont need
+  - CLI: one yaml, .env, cli args mixed
+  - default value insertion
+  - remove defined !pop
+  - list append 
+- validation: dynamic schema
+  - each should be able to be disabled (globally)
+  - check_missing: missing required 
+  - check_existence: not existed argument: for typo check
+  - check_type: 
+    - typehint check if there is typehint, including object
+    - only level one type in default, otherwise check recursively
+    - Type
+    - callable
+    - Literal
+    - if value is TYPE, check return value for function (including class method) or TYPE
+  - tag: !!base_class:
+  - CLASS: its parent TYPE is its method
+- List
+  - specify as dict
+  - but TYPE: list
+  - validate as list
+  - example callbacks
+- help
+  - key with tag: possible classes
+  - object: 
+    - from which object section
+      - argument:
+        - type hint
+        - default value
+        - doc string
+          - support inline docstring immediately following (below or right) the variable (prioritized) or google style
+          - if single line, print after , otherwise print below to save space
+- config object 
+  customized dict
+  - access and manipulation:
+    - dict style
+    - attribute style
+    - kwargs property: get all but not special keywords
+    - get and default
+    - pop
+  - instantialization
+    - its value is object: return instance
+    - otherwise: return another config object
+    - overwrite: nested dict or . delimi
+    - if you dont want initialize sub class, you should put type: !default yaml syntax class
+  - Serialization
+    - flatten dict, with customized delimiter
+    - exclude key (nested key repr,)
+- Sweep
+  - run parse_args many times with different cli, it won't parse object many times
