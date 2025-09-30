@@ -1,2 +1,2 @@
-# TwinConf
-An entanglement of configuration and code.
+# SymConf
+Configuration management system symmetric to code.
