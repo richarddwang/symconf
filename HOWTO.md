@@ -1,776 +1,951 @@
-- [Construct configuration](#construct-configuration)
-    - [1. Read YAML and dotenv files](#1-read-yaml-and-dotenv-files)
-    - [2. MERGE configuration](#2-merge-configuration)
-    - [3. Command line arguments](#3-command-line-arguments)
-    - [4. Remove argument value](#4-remove-argument-value)
-    - [5. Default argument value of object](#5-default-argument-value-of-object)
-    - [6. Variable Interpolation](#6-variable-interpolation)
-    - [7. Expression Interpolation](#7-expression-interpolation)
-- [Validation](#validation)
-    - [Validate type](#validate-type)
-    - [Check unexpected/missing arguments](#check-unexpectedmissing-arguments)
-- [Help](#help)
-    - [Inspect full configuration](#inspect-full-configuration)
-    - [Identify object's arguments](#identify-objects-arguments)
-- [Configuration Object](#configuration-object)
-    - [Access & Manipulation](#access--manipulation)
-    - [Automatically realize object](#automatically-realize-object)
-    - [Manually realize object](#manually-realize-object)
-    - [Realize instance method](#realize-instance-method)
-    - [Serialization](#serialization)
-- [List manipulation](#list-manipulation)
-- [Sweep over values](#sweep-over-values)
-    - [Hard code](#hard-code)
-    - [Simple sweep](#simple-sweep)
-    - [Complex sweep](#complex-sweep)
-
-# Construct configuration
-
-- Given: 初始化 `SymConf` parser 並解析命令列參數
-    ```python
-    # main.py
-    parser = SymConfParser(...)
-    config = parser.parse_args()
-    ```
-
-執行時 SymConf 會依序執行下列階段建構，最終得出設置 `config` 
-1. 讀取 YAML 和 dotenv 檔案
-2. MERGE 設置
-3. 命令列參數
-4. 物件初始化的參數預設值
-5. Variable Interpolation
-6. Expression Interpolation
-
-## 1. Read YAML and dotenv files
-
-讀取並合併多個 YAML 檔案，另外還可以匯入 dotenv 檔案的環境變數
-
-- 說明:
-    - 透過 CLI positional arguments 來讀取一或多個 YAML 檔案
-    - 使用內建的 `--env` 來讀取一或多個 dotenv 檔案匯入環境變數
-    - 多個檔案時會深度合併 (nested merging)，越後面的檔案優先度越高
-    - 注意 list 在合併時會被直接整個取代而非合併或延伸
-- 範例：
-    - Given: 一或多個 YAML 檔案
-        ```yaml
-        # config1.yaml
-        server: 
-            host: localhost
-            ports: 
-                - 8080
-                - 8081
-        ```
-        ```yaml
-        # config2.yaml
-        server:
-            timeout: 10
-            ports:
-                - 9090
-        ```
-    - When: `python main.py config1.yaml config2.yaml`
-    - Then: 得到 `config` 等同
-        ```yaml
-        server:
-            host: localhost
-            timeout: 10
-            ports:
-                - 9090
-        ```
-        - 注意 list 被直接取代了
+- [構建設置](#構建設置)
+  - [步驟1：讀取 YAML 和 dotenv 檔案](#步驟1讀取-yaml-和-dotenv-檔案)
+  - [步驟2：使用命令列參數](#步驟2使用命令列參數)
+  - [步驟3：移除參數值](#步驟3移除參數值)
+  - [步驟4：依物件參數預設值補全](#步驟4依物件參數預設值補全)
+  - [步驟5：引用變數值（Interpolation）](#步驟5引用變數值interpolation)
+    - [偵測循環依賴](#偵測循環依賴)
+  - [步驟6：驗證設置](#步驟6驗證設置)
+    - [驗證型別](#驗證型別)
+    - [檢查不預期或缺失的參數](#檢查不預期或缺失的參數)
+- [獲取幫助](#獲取幫助)
+  - [檢視完整設置](#檢視完整設置)
+  - [識別物件的參數](#識別物件的參數)
+- [操作設置物件](#操作設置物件)
+  - [存取與變更參數值](#存取與變更參數值)
+  - [自動實現物件](#自動實現物件)
+  - [手動實現物件](#手動實現物件)
+  - [實現 instance method](#實現-instance-method)
+  - [序列化設置](#序列化設置)
+- [操控 list](#操控-list)
+- [遍歷參數值](#遍歷參數值)
+  - [手動遍歷](#手動遍歷)
+  - [簡單遍歷](#簡單遍歷)
+  - [複雜遍歷](#複雜遍歷)
 
 
-## 2. MERGE configuration
+# 構建設置
 
-疊加 YAML 檔案雖然方便，但也可能造成難以理解參數間的覆寫關係。SymConf 能在 YAML 裡直接引用別的 YAML 的設置。
+當需要從多個來源整合設置並確保參數正確性時，使用 SymConf 來構建完整的設置。透過初始化 `SymConfParser` 並呼叫 `parse_args()` 方法，即可獲得經過多階段處理的完整設置物件。
 
-說明：
-- 使用 `MERGE` 關鍵字來引用其他 YAML 檔案的設置並深度合併
-- `MERGE` 的值可以是 YAML 檔案的相對路徑或絕對路徑，還可以加上 nested key
+Given 初始化 `SymConf` parser 並解析命令列參數
 
-範例：
-- Given: 
-    ```yaml
-    # ./configs/setting1.yaml
-    server:
-        timeout: 10
-        port: 9090
-    
-    ```
-    ```yaml
-    # ./configs/setting1.yaml
-    more_level:
-        server2:
-            port: 7070
-            host: awesome.com
-    ```
-    ```yaml
-    # ./config.yaml
-    MERGE: configs/default
-    server:
-        host: localhost
-        MERGE: configs/setting1.more_level.server2
-        port: 8080
-    ```
-- When: `python main.py config.yaml`
-- Then: 得到 `config` 等同
-    ```yaml
-    server:
-        timeout: 10
-        port: 8080
-        host: awesome.com
-    ```
-    由上往下執行，因此後面的值在深度合併裡會覆寫前面的值
-
-## 3. Command line arguments
-
-在 CLI 覆寫設置，避免直接更動 YAML 檔案
-
-說明：
-- 透過 `--args` 傳入欲覆寫的參數和值
-- 以 "." 表示 nested key、 "=" 指定值，來表示覆寫的參數和值
-- 多個覆寫參數時，後面的參數優先度較高
-
-範例：
-- Given: YAML 檔案
-    ```yaml
-    exp:
-        seed: 42
-    ```
-- When: `python main.py [YAML_FILE...] --args exp.seed=3 exp.name=hi`
-- Then: 得到 `config` 等同
-    ```yaml
-    exp:
-        seed: 3
-        name: hi
-    ```
-
-## 4. Remove argument value
-
-使用 `REMOVE` 關鍵字來刪除某參數
-
-範例：
-- Given: 
-    ```yaml
-    # ./configs/servers/default.yaml
-    server:
-        timeout: 10
-        port: 9090
-    ```
-    ```yaml
-    # ./config.yaml
-    server:
-        MERGE: servers.default.server
-        timeout: REMOVE
-    ```
-- When: `python main.py config.yaml`
-- Then: 得到 `config` 等同
-    ```yaml
-    server:
-        port: 9090
-    ```
-
-## 5. Default argument value imputation
-
-保證在記錄設置時的完整性，即使在之後物件參數的預設值改變，也不會導致無法使用之前記錄的設置複現。
-
-說明：
-- 當某設置是針對某物件，且該物件初始化的某參數使用者沒有設定時，且該物件初始化參數有預設值時，自動將設置中該參數設定為預設值
-- 使用 `TYPE` 關鍵字和物件路徑來指定物件，物件可以是 class, function, instance method, or class method
-
-範例：
-- Given: 某設置是針對某物件
-    ```yaml
-    model:
-        TYPE: awesome_package.model.AwesomeModel
-        learning_rate: 1e-3
-    ```
-- And: 該物件的初始化有預設參數值
-    ```python
-    class AwesomeModel
-        def __init__(self, learning_rate: float = 1e-4, batch_size=32):
-    ```
-- When: 讀取設置後
-- Then: 得到設置等同於
-    ```python
-    {'model': 
-        {
-            'TYPE': awesome_package.model.AwesomeModel,
-            'learning_rate': 1e-3,
-            'batch_size': 32 
-        }
-    }
-    ```
-
-## 6. Variable Interpolation
-
-如同 Python f-string 般的功能
-
-說明：
-- 使用 `${}` 包住參數名稱來表示 variable interpolation
-- 可以單獨使用變數，也可以將變數夾雜於值中
-- 參數名稱也可以是環境變數。若無法在設置中找到該變數名，就會從環境變數中找
-
-範例：
-- Given: YAML 檔如
-    ```yaml
-    output_features: ${dataset.num_classes} 
-    name: n=${dataset.num_classes}
-    dummy: 1${dataset.num_classes} 
-    dataset:
-        num_classes: ${NUM_CLASSES}
-    ```
-- And: 環境變數 `NUM_CLASSES` 為 10
-- When: 讀取該 YAML 檔設置
-- Then: 等同於 placeholders 被替換成相應的值
-    ```python
-    {
-        'output_features': 10,
-        'name': 'n=10',
-        'dummy': 110,
-        'dataset': {'num_classes': 10},
-    }
-    ```
-
-## 7. Expression Interpolation
-
-透過 Python 表達式來動態表達參數值
-
-說明：
-- 當在`${}` 裡出現 ` `` `，則 ` `` ` 包住的是變數名，且 "${}" 包住的是 Python 表達式
-
-範例：
-- Given: YAML 檔如
-    ```yaml
-    dataset:
-        num_classes: 10
-    model: 
-        output_features: ${`dataset.num_classes` + `model.extra_outputs`} 
-        extra_outputs: 2
-    ```
-- When: 讀取該 YAML
-- Then: 替換成表達式的結果。等同於
-    ```yaml
-    dataset:
-        num_classes: 10
-    model: 
-        output_features: 12 
-        extra_outputs: 2
-    ```
-
-# Validation
-
-在 `parse_args` 就檢查設置是否符合物件要求
-
-- Given:
-    ```python
-    class Parent:
-        def __init__(
-            self, 
-            name: str,
-            number: int | float = None, 
-            vocab: None | list[float] = None,
-            toy: Union[str, None] = None,
-        ): ...
-    
-    class Child:
-        def __init__(
-            self, 
-            percent: float, 
-            animal: Literal['cat', 'dog'] = 'dog', 
-            dummy = 3, 
-            name: Optional[str] = None,
-            toy: Toy = None,
-            stoy: SuperToy = None,
-            toy_cls: Type[Toy] = None,
-            **kwargs
-        ):
-            super().__init__(name=name or "John", **kwargs)
-
-    class Toy: ...
-
-    class SuperToy(Toy): ...
-
-    def square(value: float) -> float: ...
-    ```
-
-以下的每個檢查在 `SymConfParser` 初始化時都可以選擇性關閉，但預設為開啟
-
-## Validate type
-
-規則：
-- 參數值必須符合其型別註解 
-- 若參數無型別註解則不檢查
-- 參數型別若是 container，則只檢查第一層的型別
-- 若參數值設為物件設置，則以該物件的返回值檢查是否符合參數型別
-- 若參數值設為物件設置且帶有標籤 `!!base_class:xxx`，則該物件的 `TYPE` 後的類別必須是屬於 `xxx` 類別（同類別或其子類別）
-
-範例：
-- Given: 初始化 `SymConfParser` 時指定了 key 的 base_classes
-    ```python
-    parser = SymConfParser(
-        base_classes={
-            'model': Parent,
-            'model.stoy': SuperToy
-        },
-    )
-    ```
-- And: 設置
-    ```yaml
-    model:
-        TYPE: Child
-        percent: 1 # 報錯。 應該要是 float
-        animal: pig # 報錯。值應該是 'cat' 或 'dog'
-        dummy: false # 不報錯。無型別註解不檢查
-        toy: # 不報錯。其類別初始化的返回值屬於型別提示中的類別
-            TYPE: SuperToy
-        stoy:
-            TYPE: Toy # 報錯。Toy 不是 SuperToy 或其子類別
-        toy_cls: !!python/name:__main__.Toy # 若要傳入類別的型別本身而非其實體，則可使用 pyyaml built-in tag
-        number: # 不報錯。該函式的返回值屬於型別提示中的類別
-            TYPE: square
-            value: 0.3
-        name: null # 不報錯。相同參數只看最子類別的定義
-        vocab: [a, b] # 不報錯。因為當型別是 container 時只檢查第一層型別
-    ```
-- When: 讀取設置
-- Then: 會一次性報所有的錯，且
-    每行錯誤訊息會包含以下資訊：物件名、參數名、期待的型別、實際的型別、實際的參數值
-
-## Check unexpected/missing arguments
-
-- Given: 設置
-    ```yaml
-    model:
-        TYPE: Child
-        parcent: 0.1 # 報錯。不預期參數 parcent
-        # 報錯， 預期要有 percent 參數
-        # 不會報錯沒有 name 參數，因為 name 的定義是看最子類別 Child 的定義
-    ```
-- When: 讀取設置
-- Then: 一次性報所有的錯。每行錯誤訊息會包含以下資訊：物件名、參數名、錯誤類型(缺少/不預期)
-
-# Help
-
-## Inspect full configuration
-
-為了避免複雜的設置建構過程中出錯，SymConf 提供 `--print` 來印出最終建構的設置，並要求使用者按 Enter 確認後才會執行
-
-```bash
-python main.py ... --print
+```python
+# main.py
+parser = SymConfParser(...)
+config = parser.parse_args()
 ```
 
-## Identify object's arguments
+When 執行解析
 
-了解某物件可設置的參數和如何設置
+Then 得到經過下列步驟建構的設置 `config`：
 
-說明：
-- 使用 `--help.object OBJECT_PATH`
-- 物件可以是 class, function, instance method, or class method
-- `**kwargs` 追蹤
-    - 當物件參數有 `**kwargs`，且在函式內部以 `**kwargs` 展開作為其他物件的參數時，SymConf 能辨認出其他物件的參數也屬於該物件的參數。
-    - 對 `**kwargs` 的追蹤為遞迴，且不限呼叫與被呼叫物件種類是否相同
-    - 若在函式主體中 `**kwargs` 被使用多次，則只追蹤第一次展開的物件的參數
-    - 若是用在多重繼承的親類別初始化中，則僅會追蹤第一順位的親類別
-- 顯示
-    - 參數來源物件路徑
-    - 參數名稱
-    - 參數型別 (若有型別註解)
-    - 預設值 (若有預設值)
-    - 參數說明 (若有 docstring 且有在 Args 區塊中說明該參數)
+## 步驟1：讀取 YAML 和 dotenv 檔案
 
-範例：
+當需要從多個 YAML 檔案載入設置或從環境變數中讀取敏感資訊時，使用此功能。透過 CLI positional arguments 指定 YAML 檔案，並可選擇性地使用 `--env` 參數讀取 dotenv 檔案，系統會自動進行深度合併並以後面的檔案為優先。
 
-- Given: 物件定義
-    ```python
-    # ./definition.py
-    class Parent:
-        def __init__(self, a: int, b: str, c: bool = True):
-            """
-            Args:
-                a: 蘋果
-                b: 香蕉
-                c: 車子
-            """
+Given 準備多個 YAML 檔案
 
-    class Child(Parent):
-        def __init__(self, d: float, **kwargs):
-            """
-            Args:
-                d: 鴨子
-            """
-            super().__init__(3, b=d + 4, **kwargs)
-    ```
-- When: 給定物件路徑 `python main.py --help.object=definition.Child`
-- Then: SymConf 會 import 該物件，並印出該物件的參數
-    ```
-    For `definition.Child`:
-        d(float): 鴨子
-    For `definition.Parent`:
-        c(bool, default=True): 車子
-    ```
-    - 不包含參數 a, b ，因為它們在 Child 裡面被手動設值了
-    - 包含參數 c ，因為它有預設值，且 Child 裡面沒有手動設值
-    - 不包含參數 self 不會出現在列表中
+```yaml
+# config1.yaml
+server: 
+    host: localhost
+    ports: 
+        - 8080
+        - 8081
+```
 
-- Given:
-    ```python
-    # ./objects.py
-    class BClass:
-        def my_method(self, *args, f: float): 
-            """
-            Args:
-                f(int): 狐狸
-            """
+```yaml
+# config2.yaml
+server:
+    timeout: 10
+    ports:
+        - 9090
+```
 
-    class AClass:
-        @classmethod
-        def create(cls, e, **kwargs) -> "AClass":
-            b = BClass()
-            b.my_method(5, **kwargs)
+When 執行命令讀取多個檔案
 
-    class MyClass:
-        def __init__(self, a, b: bool, c, **kwargs):
-            AClass.create(**kwargs)
+```bash
+python main.py config1.yaml config2.yaml
+```
 
-    def func(d, **kwargs):
-        MyClass(3, c = d * 5, **kwargs)
-    ```
-- When: 給定物件路徑 `python main.py --help.object objects.func`
-- Then: 印出
-    ```
-    For `objects.func`:
-        d
-    For `objects.MyClass`:
-        b(bool)
-    For `objects.AClass`:
-        e
-    For `objects.BClass`:
-        f(float): 狐狸
-    ```
-    此例中可辨認出 `func` 的參數為 d, b, e, f。沒有 a, c 是因為其已在 `func` 裡面被手動設值。沒有 cls 和 self 是因為不包含物件本身。
+Then 得到合併後的設置
 
-# Configuration Object
+```yaml
+server:
+    host: localhost      # 來自 config1.yaml
+    timeout: 10          # 來自 config2.yaml
+    ports:               # list 被後面的檔案整個取代
+        - 9090
+```
 
-## Access & Manipulation
+- 透過 `--env` 參數可額外讀取 dotenv 檔案來匯入環境變數
+- 多個檔案進行深度合併時，後面的檔案具有較高優先度
+- list 類型的值會被直接取代而非合併或延伸
 
-Dict style:
-- 取值：`config['model']['learning_rate']`
-- 預設值：`config['model'].get('learning_rate', 0.01)`
-- 設值：`config['model']['learning_rate'] = 0.01`
-- 刪除：`config['model'].pop('learning_rate')`
 
-Attribute style:
-- 取值：`config.model.learning_rate`
-- 預設值：`getattr(config.model, 'learning_rate', 0.01)`
-- 設值：`config.model.learning_rate = 0.01`
-- 刪除：`delattr(config.model, 'learning_rate')`
+## 步驟2：使用命令列參數
 
-## Automatically realize object
+當需要在執行時動態覆寫設置中的特定參數而不修改 YAML 檔案時，使用命令列參數。透過 `--args` 參數，可以使用 `.` 語法指定巢狀參數並用 `=` 設定新值，實現靈活的參數覆寫。
 
-用 `realize` 方法將物件路徑和參數轉成實例或函式返回值
+Given 準備基礎 YAML 設置
 
-遞迴由深至淺地，將任何帶有 `TYPE` 的設置值轉成物件實例或函式返回值
+```yaml
+# config.yaml
+exp:
+    seed: 42
+```
 
-- Given: 設置 `config` 等同於
-    ```yaml
-    model:
-        TYPE: AwesomeModel
-        hidden_size: 64
-        optimizer: 
-            TYPE: create_optimizer
-            lr: 0.01
-    ```
-- And: 物件定義
-    ```python
-    class Optimizer:
-        def __init__(self, lr): ...
+When 使用命令列參數覆寫設置
 
-    class AwesomeModel:
-        def __init__(self, hidden_size, optimizer: Optimizer): ...
-    
-    def create_optimizer(lr) -> Optimizer: ...
-    ```
-- When: `realized_config = config.realize()`
-- Then: 得到的 `realized_config` 等同於
-    ```python
-    {
-        'model': AwesomeModel(
-            hidden_size=64, 
-            optimizer=create_optimizer(lr=0.01),
-        )
+```bash
+python main.py config.yaml --args exp.seed=3 exp.name=hi
+```
+
+Then 得到覆寫後的設置
+
+```yaml
+exp:
+    seed: 3     # 覆寫原始值 42
+    name: hi    # 新增參數
+```
+
+- 使用 `.` 語法來表示巢狀 key 的路徑
+- 使用 `=` 來指定參數的新值
+- 當指定多個覆寫參數時，後面的參數具有較高優先度
+
+## 步驟3：移除參數值
+
+當需要從已合併的設置中移除特定參數時，使用 `REMOVE` 關鍵字。透過將參數值設定為 `REMOVE`，可以明確地從最終設置中刪除該參數，適合用於從預設設置中排除不需要的參數。
+
+Given 準備基礎設置檔案
+
+```yaml
+# ./configs/default.yaml
+server:
+    host: localhost
+    timeout: 10
+    port: 9090
+    debug: true
+```
+
+And 準備覆寫設置檔案來移除特定參數
+
+```yaml
+# ./config.yaml
+server:
+    debug: REMOVE                    # 明確移除 debug 參數
+```
+
+When 傳入多個檔案解析設置
+
+```bash
+python main.py configs/default.yaml config.yaml
+```
+
+Then 得到移除指定參數後的設置
+
+```yaml
+server:
+    host: localhost   # 來自 default.yaml
+    timeout: 10       # 來自 default.yaml
+    port: 9090        # 來自 default.yaml
+    # debug 參數已被移除
+```
+
+- 使用 `REMOVE` 可以明確地從設置中刪除參數
+- 適合搭配多檔案合併來從預設設置中排除不需要的參數
+- 可以與命令列參數搭配使用來動態移除參數
+
+## 步驟4：依物件參數預設值補全
+
+當需要確保設置記錄的完整性以便日後複現實驗時，系統會自動補全物件參數的預設值。透過檢查 `TYPE` 指定的物件定義，系統會將使用者未明確設定但具有預設值的參數自動加入設置中，避免因日後程式碼變更而影響實驗複現性。
+
+Given 定義帶有預設參數的物件
+
+```python
+class AwesomeModel:
+    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32):
+        ...
+```
+
+And 準備只設定部分參數的設置
+
+```yaml
+model:
+    TYPE: awesome_package.model.AwesomeModel
+    learning_rate: 1e-3    # 使用者明確設定
+    # batch_size 未設定，但有預設值
+```
+
+When 解析設置
+
+Then 系統自動補全預設值
+
+```python
+{
+    'model': {
+        'TYPE': 'awesome_package.model.AwesomeModel',
+        'learning_rate': 1e-3,    # 使用者設定的值
+        'batch_size': 32          # 自動補全的預設值
     }
-    ```
+}
+```
 
-若想要在解析物件時，手動傳入參數覆蓋原參數，可以使用 `realize` 的 `overwrites` 參數。另外，我們也可以選擇實現只有該物件的設置，則回直接回傳實例或函式返回值。
+- 只有具有 `TYPE` 關鍵字的物件設置才會進行預設值補全
+- 使用者明確設定的參數不會被覆寫
+- 支援 class、function、instance method 和 class method
 
-- When: 呼叫 `realize` 時指定欲覆蓋的參數的 nested key 和值
-    ```python
-    model: AwesomeModel = config.model.realize(overwrites={'optimizer.lr': 0.02})
-    ```
-- Then: 得到 `AwesomeModel` 實例，如同
-    ```python
-    model = AwesomeModel(
-        hidden_size=64,
-        optimizer=create_optimizer(lr=0.02),
+## 步驟5：引用變數值（Interpolation）
+
+當需要在設置中引用其他參數的值或環境變數時，使用插值功能。SymConf 支援三種插值方式，系統會自動識別插值類型並進行相應處理：
+- **參數插值** `${simple_name}`： 若只包含簡單的參數路徑，則代表引用配置中的該路徑的參數值，
+- **環境變數插值** `${UPPER_CASE}`：若包含全大寫參數名，則引用環境變數
+- **表達式插值** `${... `variable` ...}`：若包含以反引號包圍變數，則代表執行 Python 表達式的結果
+
+Given 展示三種插值和遞迴引用的綜合範例
+
+```yaml
+dataset:
+    name: cifar10
+    num_classes: ${BASE_FEATURE_SIZE}       # 間接引用環境變數
+    
+model:
+    # 參數插值（直接引用）
+    output_features: ${dataset.num_classes}
+    
+    # 嵌入字串中使用
+    name: model_${dataset.name}_v${multiplier}
+    
+    # 環境變數插值
+    hidden_dim: ${FEATURE_SIZE}
+
+    # 表達式插值
+    dropout: ${0.1 if max(`dataset.num_classes` * 2, 2) < 5 else 0.0}
+    
+# 遞迴引用：引用其他計算結果
+total_params: ${`model.hidden_dim` + `model.output_features`}
+```
+
+And 設定環境變數
+
+```bash
+export FEATURE_SIZE=10
+```
+
+When 解析設置
+
+Then 所有插值被遞迴解析為實際值
+
+```python
+{
+    'dataset': {
+        'name': 'cifar10',
+        'num_classes': 10        # 環境變數插值: BASE_FEATURE_SIZE
+    },
+    'model': {
+        'output_features': 10,           # 參數插值: dataset.num_classes
+        'name': 'model_cifar10_v2',     # 字串嵌入: dataset.name + multiplier
+        'hidden_dim': 10,               # 環境變數插值: FEATURE_SIZE  
+        'dropout': 0.0,                 # 表達式插值: max(10*2, 2) = 20, 20 < 5 = False
+    },
+    'total_params': 20                  # 遞迴引用: 10 + 10
+}
+```
+
+### 偵測循環依賴
+
+Given 插值形成循環引用
+```yaml
+# 錯誤範例：循環依賴
+a: ${b}
+b: ${c} 
+c: 3  
+```
+When 解析時有循環依賴
+```bash
+python main.py config.yaml --c="${a}" # 形成 a → b → c → a 的循環
+```
+Then 顯示循環插值錯誤
+```python
+CircularInterpolationError: 
+
+a: ${b} (config.yaml:1) 
+→ b: ${c} (config.yaml:2) 
+→ c: ${a} (CLI argument) 
+→ a: ${b} (config.yaml:1)
+```
+
+## 步驟6：驗證設置
+
+當需要在執行前確保設置符合物件定義的要求時，使用驗證功能。透過在 `parse_args` 階段就檢查型別和參數是否正確，可以及早發現設置錯誤並避免執行時的問題。
+
+Given 定義範例類別和函式
+
+```python
+class Parent:
+    def __init__(
+        self, 
+        name: str,
+        number: int | float = None, 
+        vocab: None | list[float] = None,
+        toy: Union[str, None] = None,
+    ): ...
+
+class Child(Parent):
+    def __init__(
+        self, 
+        percent: float, 
+        animal: Literal['cat', 'dog'] = 'dog', 
+        dummy = 3, 
+        name: Optional[str] = None,
+        toy: Toy = None,
+        stoy: SuperToy = None,
+        toy_cls: Type[Toy] = None,
+        stoy_cls: Type[SuperToy] = None,
+        **kwargs
+    ):
+        super().__init__(name=name or "John", **kwargs)
+
+class Toy: ...
+class SuperToy(Toy): ...
+
+def square(value: float) -> float: ...
+```
+
+### 驗證型別
+
+當需要確保設置中的參數值符合物件定義的型別註解時，使用型別驗證功能。系統會根據物件的型別註解檢查每個參數值是否正確，並在發現錯誤時提供詳細的錯誤訊息。
+
+Given 初始化 `SymConfParser` 並指定 base_classes
+
+```python
+parser = SymConfParser(
+    validate_type=True, # 預設開啟
+    base_classes={
+        'model': Parent,
+        'model.stoy': SuperToy
+    },
+)
+```
+
+And 準備包含各種型別情況的設置
+
+```yaml
+model:
+    TYPE: Child
+    percent: 1                           # 錯誤：應該要是 float
+    animal: pig                          # 錯誤：值應該是 'cat' 或 'dog'  
+    dummy: false                         # 正確：無型別註解不檢查
+    toy:                                 # 正確：物件返回值符合型別
+        TYPE: SuperToy
+    stoy:
+        TYPE: Toy                        # 錯誤：Toy 不是 SuperToy 子類別
+    toy_cls: !!python/name:__main__.Toy  # 正確：使用 PyYAML 標籤傳入類別本身
+    number:                              # 正確：函式返回值符合型別
+        TYPE: square
+        value: 0.3
+    name: null                           # 正確：以子類別定義為準
+    vocab: [a, b]                        # 正確：容器型別只檢查第一層
+    stoy_cls:                            # 錯誤：期待型別而非實例
+        TYPE: SuperToy
+```
+
+When 解析設置
+
+Then 系統一次性報告所有參數驗證錯誤，包含型別錯誤等等。每段型別驗證類型的錯誤訊息包含錯誤原因、參數路徑、參數來源、實際值和其型別、期望的型別或值集合
+
+```bash
+ParameterValidationError: 
+
+❌ Type mismatch
+Parameter: model.percent (config.yaml:3)
+Value/Type: 1 (int)
+Expected: float
+
+❌ Value not in allowed range
+Parameter: model.animal (CLI argument)
+Value/Type: 'pig' (str)
+Expected: 'cat' or 'dog'
+
+❌ Type mismatch
+Parameter: model.stoy (config.yaml:8)
+Value/Type: class instance of `Toy`
+Expected: class/subclass instance of `SuperToy`
+
+❌ Type mismatch
+Parameter: model.stoy_cls (config.yaml:12)
+Value/Type: class instance of `SuperToy`
+Expected: class/subclass type of `SuperToy`
+```
+
+### 檢查不預期或缺失的參數
+
+當需要確保設置包含物件所需的所有必要參數，且不包含無效參數時，使用參數對應性檢查。系統會比對設置與物件定義，檢查是否有拼寫錯誤的參數名稱或缺少必要的參數。
+
+Given 初始化有啟用參數對應性檢查的 `SymConfParser`
+
+```python
+parser = SymConfParser(validate_mapping=True) # 預設開啟
+```
+
+And 準備包含參數錯誤的設置
+
+```yaml
+model:
+    TYPE: Child
+    parcent: 0.1    # 錯誤：不預期的參數（應為 percent）
+    # 錯誤：缺少必要的參數 percent
+    # 正確：name 參數有預設值，可以省略
+```
+
+When 解析設置
+
+Then 系統一次性報告所有參數驗證錯誤，包含型別或對應性錯誤。每段參數對應性錯誤訊息格式範例如下
+```bash
+ParameterValidationError: 
+
+❌ Unexpected parameter
+Parameter: model.parcent (config.yaml:3)
+Object: Child
+Expected parameters: ['percent', 'animal', 'dummy', 'name', 'toy', 'stoy', 'toy_cls', 'stoy_cls', 'name', 'number', 'vocab', 'toy']
+
+❌ Missing parameter
+Expected parameter(s): percent
+Object: Child
+```
+- 支援 `**kwargs` 傳遞鏈的參數識別
+
+# 獲取幫助
+
+## 檢視完整設置
+
+當需要檢查複雜的設置建構過程是否正確，避免因設置錯誤而浪費執行時間時，使用設置檢視功能。透過 `--print` 參數，可以在程式執行前查看最終建構的完整設置，並需要手動確認後才繼續執行。
+
+When 使用 `--print` 參數執行程式
+
+```bash
+python main.py config.yaml --print
+```
+
+Then 系統會以 YAML 形式，印出經過所有步驟處理後的最終完整設置內容，並提示按 Enter 鍵確認後才繼續執行程式
+
+## 識別物件的參數
+
+當需要了解某個物件可以接受哪些參數以及如何正確設置這些參數時，使用物件參數查詢功能。透過 `--help.object` 參數，可以獲得物件的完整參數資訊，包括可透過 `**kwargs` 間接定義的參數。
+
+Given 物件間的 `**kwargs` 傳遞鏈
+
+```python  
+# ./objects.py
+class BClass:
+    def my_method(self, g: float):
+        """
+        Args:
+            g: 猩猩
+        """
+
+def func(f: int = 5, **kwargs):
+    """
+    Args:
+        f(int, optional): 狐狸。
+    """
+    b = BClass()
+    b.my_method(**kwargs)
+
+class AClass:
+    @classmethod  
+    def create(cls, e, **kwargs) -> "AClass":
+        func(**kwargs)
+        ...
+
+class Parent:
+    def __init__(self, a, b: bool, c, **kwargs):
+        AClass.create(**kwargs)
+
+class Child(Parent):
+    def __init__(self, d, **kwargs):
+        super().__init__(a=3, c=d*5, **kwargs)
+```
+
+When 查詢函式的參數
+
+```bash
+python main.py --help.object=objects.Child
+```
+
+Then 系統照著 `**kwargs` 傳遞鏈，印出所有可在查詢物件中設置的參數
+
+```bash
+objects.Child:
+    d
+→ objects.Parent: 
+    b(bool)
+→ objects.AClass.create:
+    e
+→ objects.func:
+    f(int, default=5): 狐狸
+→ objects.BClass.my_method:
+    g(float): 猩猩
+```
+- 支援 class、function、instance method、class method
+- 遞迴追蹤 `**kwargs` 的參數傳遞
+- 排除被呼叫者的已被呼叫者寫死設值的參數（如呼叫者 `Child` 的支援參數不包含被呼叫者 `Parent` 的 `a`、`c`）
+- 排除物件本身參數（如 `self`、`cls`）
+
+# 操作設置物件
+
+## 存取與變更參數值
+
+當需要在程式中讀取、修改或操作設置內容時，設置物件提供兩種存取方式。透過 dict 風格或 attribute 風格的語法，可以靈活地存取和操控巢狀的設置結構。
+
+Given 已解析的設置物件
+
+```python
+config = parser.parse_args()  # 假設包含 model.learning_rate 等設置
+```
+
+When 使用 dict 風格存取
+
+```python
+value = config['model']['learning_rate'] # 取值
+value = config['model'].get('learning_rate', 0.01)   # 預設值
+config['model']['learning_rate'] = 0.01 # 設值
+config['model'].pop('learning_rate') # 刪除
+```
+
+When 使用 attribute 風格存取
+
+```python
+value = config.model.learning_rate # 取值
+value = getattr(config.model, 'learning_rate', 0.01) # 預設值
+config.model.learning_rate = 0.01 # 設值
+delattr(config.model, 'learning_rate') # 刪除
+```
+
+Then 兩種方式都能正確操作設置
+
+- Dict 風格使用 `[]` 和字典方法，適合動態的 key 存取
+- Attribute 風格使用 `.` 語法，程式碼更簡潔易讀
+- 兩種風格可以混合使用，操作結果完全相同
+
+## 自動實現物件
+
+當需要將設置中的物件定義轉換為實際的物件實例時，使用自動物件實現功能。透過 `realize` 方法，系統會遞迴地將所有帶有 `TYPE` 關鍵字的設置，轉換為對應的物件實例或函式返回值。
+
+Given 定義相關的類別和函式
+
+```python
+class Optimizer:
+    def __init__(self, lr): ...
+
+class AwesomeModel:
+    def __init__(self, hidden_size, optimizer: Optimizer): ...
+
+def create_optimizer(lr) -> Optimizer: ...
+```
+
+And 準備包含巢狀物件的設置
+
+```yaml
+model:
+    TYPE: AwesomeModel
+    hidden_size: 64
+    optimizer: 
+        TYPE: create_optimizer    # 巢狀物件定義
+        lr: 0.01
+```
+
+When 自動實現所有物件
+
+```python
+realized_config = config.realize()
+```
+
+Then 得到完全實例化的物件
+
+```python
+{
+    'model': AwesomeModel(
+        hidden_size=64, 
+        optimizer=create_optimizer(lr=0.01)  # 子物件也被實例化
     )
+}
+```
 
-若不想要初始化子物件，則不要在該子物件處使用 `TYPE` 標籤，可以使用 pyyaml built-in tag 指定類別。例如
+When 實現某設置下的所有物件，並覆蓋部分參數
 
-- Given:
-    ```yaml
-    model:
-        TYPE: AwesomeModel
-        hidden_size: 64
-        optimizer: 
-            creator: !!python/name:<module_path>.create_optimizer
-            lr: 0.001
-    ```
-- When: `config.model.realize()`
-- Then: 在初始化 `AwesomeModel` 時，會將 `config.model.optimizer` 以原始形式代入`optimizer` 參數
+```python
+model = config.model.realize(overwrites={'optimizer.lr': 0.02})
+```
 
-## Manually realize object
+Then 得到覆蓋參數後的實例
 
-若物件類型（`TYPE`）是靜態的，且不需要遞迴初始化子物件時，為避免自動物件實現難以理解，也可以手動初始化物件
+```python
+# 等同於
+model = AwesomeModel(
+    hidden_size=64,
+    optimizer=create_optimizer(lr=0.02)  # 使用覆蓋的學習率
+)
+```
 
-説明：
-- 透過設置物件的 `kwargs` 方法來取得該物件不包含特殊關鍵字的參數字典
+- 遞迴處理所有巢狀的 `TYPE` 定義，由深至淺實例化
+- 使用 `overwrites` 參數可以動態覆蓋任何巢狀參數
+- 不使用 `TYPE` 關鍵字的物件會保持原始字典形式
 
-範例：
-- Given: 設置 `config` 等同於
-    ```yaml
-    model:
-        TYPE: AwesomeModel
-        hidden_size: 64
-    ```
-- When: `model = AwesomeModel(**config.model.kwargs)`
-- Then: 等同於
-    ```python
-    model = AwesomeModel(hidden_size=64)
-    ```
+## 手動實現物件
 
-## Realize instance method
+當物件類型是靜態已知的，且不需要遞迴初始化子物件時，使用手動物件實現可以提供更清楚的控制流程。透過 `kwargs` 方法獲取純淨的參數字典，可以明確地控制物件的實例化過程。
 
+Given 準備簡單的物件設置
 
+```yaml
+model:
+    TYPE: AwesomeModel
+    hidden_size: 64
+    # 不包含需要遞迴實例化的子物件
+```
 
-自動實現 instance method 並返回值。需要在該 method 設置下，以 關鍵字 `CLASS` 描述其 class 的設置
+When 手動實例化物件
 
-- Given:
-    ```python
-    class Experiment:
-        def __init__(self, seed: int):
-            self.seed = seed
-        
-        def cross_validate(self, folds: int) -> dict[str, float]:
-            return {'F1': 0.9, 'Precision': 0.95}
-    ```
-- And:
-    ```yaml
+```python
+model = AwesomeModel(**config.model.kwargs)
+```
+
+Then 得到實例化的物件
+
+```python
+# 等同於
+model = AwesomeModel(hidden_size=64)
+```
+
+- `kwargs` 方法會過濾掉 `TYPE` 等特殊關鍵字
+- 適合用於類型已知且結構簡單的物件設置
+- 提供比自動實現更明確的控制
+
+## 實現 instance method
+
+當需要執行某個物件的 instance method 並獲取其返回值時，使用 instance method 實現功能。透過 `CLASS` 關鍵字指定實例的設置，系統會先創建物件實例，再呼叫指定的方法並返回結果。
+
+Given 定義包含 instance method 的類別
+
+```python
+class Experiment:
+    def __init__(self, seed: int):
+        self.seed = seed
+    
+    def cross_validate(self, folds: int) -> dict[str, float]:
+        return {'F1': 0.9, 'Precision': 0.95}
+```
+
+And 準備 instance method 的設置
+
+```yaml
+TYPE: Experiment.cross_validate
+folds: 5
+CLASS:          # 指定創建實例所需的參數
+    seed: 1
+```
+
+When 自動實現 instance method
+
+```python
+metrics = config.realize()
+```
+
+Then 得到方法執行的返回值
+
+```python
+metrics == {'F1': 0.9, 'Precision': 0.95}
+```
+
+Given 分離的設置結構
+
+```yaml
+method:
     TYPE: Experiment.cross_validate
     folds: 5
-    CLASS:
-        seed: 1
-    ```
-- When: `metrics = config.realize()`
-- Then: `metrics == {'F1': 0.9, 'Precision': 0.95}`
+experiment:
+    seed: 1
+```
 
-當然也可以手動實現
+When 手動實現 instance method
 
-- Given:
-    ```yaml
-    method:
-        TYPE: Experiment.cross_validate
-        folds: 5
-    exp:
-        seed: 1
-    ```
-- When: `metrics = Experiment(**config.exp.kwargs).cross_validate(**config.method.kwargs)`
-- Then: `metrics == {'F1': 0.9, 'Precision': 0.95}`
+```python
+metrics = Experiment(**config.experiment.kwargs).cross_validate(**config.method.kwargs)
+```
 
-## Serialization
+Then 同樣得到方法執行的返回值
 
-方便記錄美觀
+```python  
+metrics == {'F1': 0.9, 'Precision': 0.95}
+```
 
-説明：
-- 設置物件的 `pretty` 方法來取得美觀的字典
-- 扁平化巢狀設置
-- 可以排除指定的參數
-- 將實現的物件實例轉回物件型別名
+- 使用 `CLASS` 關鍵字來指定創建實例的參數。若 `TYPE` 是 instance method 但沒有指定 `CLASS`，且使用自動實現，會報錯
+- 在自動實現 instance method 時，系統會先實例化類別，再呼叫指定的方法
+- 支援自動實現和手動實現兩種方式
 
-範例：
-- Given: 設置 `config` 等同於
-    ```python
-    {
-        'model': {
-            'TYPE': AwesomeModel,
-            'hidden_size': 64
-        },
-        'dataset': {
-            'batch_size': 32
-        }
+## 序列化設置
+
+當需要將複雜的巢狀設置轉換為扁平化的格式以便記錄或展示時，使用序列化功能。透過 `pretty` 方法，可以獲得美觀且易讀的扁平化字典，並可選擇性地排除特定參數。
+
+Given 準備包含巢狀結構的設置
+
+```python
+config = {
+    'model': {
+        'TYPE': 'AwesomeModel',  # 物件類型
+        'hidden_size': 64
+    },
+    'dataset': {
+        'batch_size': 32
     }
-    ```
-- When: `config.pretty()`
-- Then: 回傳的字典應該是
-    ```python
-    {
-        "model.TYPE": "AwesomeModel",
-        "model.hidden_size": 64,
-        "dataset.batch_size": 32
-    }
-    ```
-- When:  `config.pretty(exclude=['dataset.batch_size'])`
-- Then: 回傳的字典應該是
-    ```python
-    {
-        "model.TYPE": "AwesomeModel",
-        "model.hidden_size": 64
-    }
-    ```
+}
+```
 
-# List manipulation
+When 序列化為扁平化格式
 
-SymConf 提供 `LIST` 為一個特殊的 `TYPE` 值，來以 dict 的方式修改 list 的元素
+```python
+pretty_config = config.pretty()
+```
 
-- Given: 設置
-    ```yaml
-    # configs/default.yaml
-    callbacks:
-        TYPE: LIST
-        log: log_callback
-        ckpt: save_model_callback
-    ```
-    ```yaml
-    # config.yaml
-    callbacks:
-        MERGE: default.callbacks
-        ckpt: DELETE
-        stop: early_stopping_callback
-    ```
-- When: 設定設置庫為 `configs` 的 `SymConfParser` 讀取 `config.yaml`
-- Then: 得到設置如同
-    ```yaml
-    callbacks:
-        - log_callback
-        - early_stopping_callback
-    ```
-    利用了 dict-style 方式來修改，但最後還是得到了 list
+Then 得到扁平化的美觀字典
 
-# Sweep over values
+```python
+{
+    "model.TYPE": "AwesomeModel",    # 巢狀 key 用 . 分隔
+    "model.hidden_size": 64,
+    "dataset.batch_size": 32
+}
+```
 
-在保持設置建構邏輯的情況下，得到不同參數組合的設置
+When 排除特定參數進行序列化
 
-## Hard code
+```python
+pretty_config = config.pretty(exclude=['dataset.batch_size'])
+```
 
-迴圈呼叫 `parse_args`，並用 `--args` 在每次迴圈中覆蓋想要改變的參數
+Then 得到排除指定參數的結果
 
-- Given: 有做某些 interpolation 的設置檔
-    ```yaml
-    # config.yaml
-    dataset: imagenet
-    devices: [1, 2]
-    batch_size_per_device: ${`batch_size`//len(`devices`)}
-    ```
-- And:  
-    ```python
-    # main.py
-    parser = SymConfParser()
-    for dataset in ['iris', 'cifar10']:
-        for batch_size in [32, 64]:
-            if dataset == 'iris' and batch_size == 32:
-                continue
-            config = parser.parse_args(sys.argv[1:] + ["--args"] + [f"dataset={dataset}", f"batch_size={batch_size}"])
-    ```
-- When: `python main.py config.yaml --args dataset=dummy`
-- Then: 每個 loop 依序得到 `config` 如同
-    ```yaml
-    dataset: iris
-    devices: [1, 2]
-    batch_size_per_device: 16
-    batch_size: 32
-    ```
-    ```yaml
-    dataset: cifar10
-    devices: [1, 2]
-    batch_size_per_device: 16
-    batch_size: 32
-    ```
-    ```yaml
-    dataset: cifar10
-    devices: [1, 2]
-    batch_size_per_device: 32
-    batch_size: 64
-    ```
+```python
+{
+    "model.TYPE": "AwesomeModel", 
+    "model.hidden_size": 64
+    # dataset.batch_size 被排除
+}
+```
 
-## Simple sweep
+- 巢狀的 key 會用 `.` 連接成扁平化的 key
+- 物件實例會被轉換回其類別名稱字串
+- 可透過 `exclude` 參數排除不需要的參數
+- 適合用於實驗記錄和設置展示
 
-當只有一個參數需要 sweep ，或可以用 `product` 表示多個參數的 sweep 時
+# 操控 list
 
-說明：
-- `--sweep KEY=VAL1,VAL2,...` 其中 KEY 為參數的 nested key，VAL 為該參數的搜尋值
-- `--sweep` 後可描述多個參數和其搜尋值，越前面的參數等同於越外層的迴圈
-- 當有 `--sweep` 時，`parse_args` 回傳 list of configs，每次會得到不同參數組合的設置
+當需要以更靈活的方式管理 list 元素，如新增、刪除或替換特定項目時，使用 `LIST` 類型。透過將 `TYPE` 設定為 `LIST`，可以用 dict 的語法來操作 list 元素，最終仍會得到標準的 list 結構。
 
-範例：
-- Given: 
-    ```python
-    # sweep.py
-    parser = SymConfParser()
-    config = parser.parse_args()
-    if isinstance(config, list):
-        for config in configs:
-            experiment = config.exp.realize()
-            experiment.run(**config.run.kwargs)
-    else:
+Given 準備基礎的 list 設置
+
+```yaml
+# ./configs/default.yaml
+callbacks:
+    TYPE: LIST
+    log: log_callback           # 使用有意義的 key 名稱
+    ckpt: save_model_callback
+    debug: debug_callback
+```
+
+And 準備覆寫設置來修改 list 內容
+
+```yaml
+# ./config.yaml
+callbacks:
+    TYPE: LIST
+    ckpt: REMOVE                    # 移除特定項目
+    stop: early_stopping_callback   # 新增項目
+```
+
+When 傳入多個檔案解析設置
+
+```bash
+python main.py configs/default.yaml config.yaml
+```
+
+Then 得到修改後的 list
+
+```yaml
+callbacks:
+    - log_callback             # 保留的項目
+    - debug_callback           # 保留的項目
+    - early_stopping_callback  # 新增的項目
+    # save_model_callback 被移除
+```
+
+- 使用 `TYPE: LIST` 來啟用 dict 風格的 list 操作
+- 可以用有意義的 key 名稱來標識 list 元素
+- 支援 `REMOVE` 來刪除特定元素，搭配多檔案合併使用
+- 最終輸出仍為標準的 list 格式
+
+# 遍歷參數值
+
+當需要在相同的設置邏輯下測試不同的參數組合時，使用參數遍歷功能。透過程式化的方式產生多組設置，可以在保持所有插值和合併邏輯的同時，系統性地探索不同的參數值。
+
+## 手動遍歷
+
+當需要完全自定義遍歷邏輯，包含複雜的條件判斷時，使用手動方式。透過在使用者程式中迴圈呼叫 `parse_args` 並用 `--args` 覆蓋參數，可以實現任意複雜的遍歷模式。
+
+Given 準備包含插值邏輯的設置檔
+
+```yaml
+# config.yaml
+dataset: imagenet
+devices: [1, 2]
+batch_size_per_device: ${`batch_size`//len(`devices`)}  # 動態計算
+```
+
+And 在程式中定義遍歷邏輯
+
+```python
+# main.py
+parser = SymConfParser()
+for dataset in ['iris', 'cifar10']:
+    for batch_size in [32, 64]:
+        if dataset == 'iris' and batch_size == 32:
+            continue  # 跳過特定組合
+        config = parser.parse_args(
+            sys.argv[1:] + ["--args"] + [f"dataset={dataset}", f"batch_size={batch_size}"]
+        )
+        # 使用 config 進行實驗...
+```
+
+When 執行遍歷
+
+```bash
+python main.py config.yaml
+```
+
+Then 依序得到不同的設置組合
+
+第一次迴圈：
+```yaml
+dataset: iris
+devices: [1, 2] 
+batch_size_per_device: 32    # 64//2 的結果
+batch_size: 64
+```
+
+第二次迴圈：
+```yaml
+dataset: cifar10
+devices: [1, 2]
+batch_size_per_device: 16    # 32//2 的結果
+batch_size: 32
+```
+
+第三次迴圈：
+```yaml
+dataset: cifar10
+devices: [1, 2]
+batch_size_per_device: 32    # 64//2 的結果
+batch_size: 64
+```
+
+- 完全自定義遍歷邏輯和條件判斷
+- 保持所有設置建構邏輯（合併、插值等）
+- 適合複雜的參數組合篩選需求
+
+## 簡單遍歷
+
+當需要對單個或多個參數進行笛卡爾積遍歷時，使用簡單遍歷功能。透過 `--sweep.<參數路徑>` 參數，可以直接指定各個參數的候選值，系統會自動產生所有可能的組合。
+
+Given 準備處理遍歷結果的程式
+
+```python
+# sweep.py
+parser = SymConfParser()
+configs = parser.parse_args()
+
+if isinstance(configs, list):    # 有 --sweep 時返回 list
+    for config in configs:
         experiment = config.exp.realize()
         experiment.run(**config.run.kwargs)
-    ```
-- When: `python sweep.py ... --sweep model.batch_size=2,4,6 exp.seed=0,1,2`
-- Then: 等同於
-    ```python
+else:                           # 無 --sweep 時返回單一 config
+    experiment = configs.exp.realize()
+    experiment.run(**configs.run.kwargs)
+```
+
+When 使用 `--sweep.<參數路徑>` 指定該參數的候選值
+
+```bash
+python sweep.py config.yaml --sweep.log.name "my_${exp.seed}" REMOVE hello --sweep.exp.seed 0 1 2
+```
+
+Then 系統產生所有參數組合並依序執行
+
+等同於下列巢狀迴圈：
+```python
+for model_batch_size in ['my_${exp.seed}', 'REMOVE', 'hello']: # 前面的參數為外層迴圈
+    for exp_seed in ['0', '1', '2']:                           # 後面的參數為內層迴圈
+        config = parser.parse_args([
+            "config.yaml", "--args",
+            f"model.batch_size={model_batch_size}",
+            f"exp.seed={exp_seed}"
+        ])
+        experiment = config.exp.realize()
+        experiment.run(**config.run.kwargs)
+```
+
+- 使用 `--sweep KEY=VAL1,VAL2,...` 語法指定參數和候選值
+- 可以同時指定多個參數，進行笛卡爾積組合
+- 參數順序決定遍歷的巢狀順序（前面的參數為外層迴圈）
+- 當使用 `--sweep` 時，`parse_args` 返回設置列表而非單一設置
+
+## 複雜遍歷
+
+當需要實現複雜的參數組合邏輯，如某些參數必須同時出現或互斥時，使用複雜遍歷功能。透過自定義生成函式，可以精確控制哪些參數組合需要被測試。
+
+Given 定義自定義的參數組合生成函式
+
+```python
+# ./mysweep.py
+def my_sweep() -> Iterator[dict[str, Any]]:
     for model_batch_size in [2, 4, 6]:
-        for exp_seed in [0, 1, 2]:
-            config = parser.parse_args(sys.argv[1:] + [
-                "--args",
-                f"model.batch_size={model_batch_size}",
-                f"exp.seed={exp_seed}",
-            ])
-            experiment = config.exp.realize()
-            experiment.run(**config.run.kwargs)
-    ```
-
-## Complex sweep
-
-當有複雜邏輯譬如多個參數有些要一起出現或不能一起出現時
-
-說明：
-- `--sweep FUNCTION_PATH` 來指定一個生成不同設置覆寫的函式
-
-範例：
-- Given: 函式定義
-    ```python
-    # ./mysweep.py
-    def my_sweep()-> dict[str, Any]:
-        for model_batch_size in [2, 4, 6]:
-            for exp_seed in [0, 1, 2]:
-                if model_batch_size == 2 and exp_seed == 0:
-                    continue
-                yield {
-                    "model.batch_size": model_batch_size,
-                    "exp.seed": exp_seed,
-                }
-    ```
-- When: `python sweep.py ... --sweep mysweep.my_sweep`
-- Then: 等同於
-    ```python
-    for model_batch_size in [2, 4, 6]:
-        for exp_seed in [0, 1, 2]:
+        for exp_seed, name in [(0, 'first'), (1, 'second'), (2, 'third')]:
             if model_batch_size == 2 and exp_seed == 0:
-                    continue
-            config = parser.parse_args(sys.argv[1:] + [
-                "--args",
-                f"model.batch_size={model_batch_size}",
-                f"exp.seed={exp_seed}",
-            ])
-            experiment = config.exp.realize()
-            experiment.run(**config.run.kwargs)
-    ```
+                continue  # 跳過特定組合
+            yield {
+                "model.batch_size": model_batch_size,
+                "exp.seed": exp_seed,
+                "log.name": name
+            }
+```
+
+When 使用自定義函式進行遍歷
+
+```bash
+python sweep.py config.yaml --sweep_fn mysweep.my_sweep
+```
+
+Then 系統按照自定義邏輯產生參數組合
+
+等同於執行：
+```python
+for model_batch_size in [2, 4, 6]:
+    for exp_seed, name in [(0, 'first'), (1, 'second'), (2, 'third')]:
+        if model_batch_size == 2 and exp_seed == 0:
+            continue  # 跳過特定組合
+        
+        config = parser.parse_args([
+            "config.yaml", "--args",
+            f"model.batch_size={model_batch_size}",
+            f"exp.seed={exp_seed}",
+            f"log.name={name}"
+        ])
+        experiment = config.exp.realize()
+        experiment.run(**config.run.kwargs)
+```
+
+- 使用 `--sweep FUNCTION_PATH` 指定自定義的生成函式
+- 生成函式應該 yield 包含參數覆寫的字典
+- 支援任意複雜的條件邏輯和參數依賴關係
+- 適合需要精細控制參數組合的進階應用場景
