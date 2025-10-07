@@ -280,6 +280,10 @@ a: ${b} (config.yaml:1)
 
 當需要在執行前確保設置符合物件定義的要求時，使用驗證功能。透過在 `parse_args` 階段就檢查型別和參數是否正確，可以及早發現設置錯誤並避免執行時的問題。
 
+### 驗證型別
+
+當需要確保設置中的參數值符合物件定義的型別註解時，使用型別驗證功能。系統會根據物件的型別註解檢查每個參數值是否正確，並在發現錯誤時提供詳細的錯誤訊息。
+
 Given 定義範例類別和函式
 
 ```python
@@ -313,11 +317,7 @@ class SuperToy(Toy): ...
 def square(value: float) -> float: ...
 ```
 
-### 驗證型別
-
-當需要確保設置中的參數值符合物件定義的型別註解時，使用型別驗證功能。系統會根據物件的型別註解檢查每個參數值是否正確，並在發現錯誤時提供詳細的錯誤訊息。
-
-Given 初始化 `SymConfParser` 並指定 base_classes
+And 初始化 `SymConfParser` 並指定 base_classes
 
 ```python
 parser = SymConfParser(
@@ -359,31 +359,42 @@ Then 系統一次性報告所有參數驗證錯誤，包含型別錯誤等等。
 ParameterValidationError: 
 
 ❌ Type mismatch
-Parameter: model.percent (config.yaml)
-Value/Type: 1 (int)
+Parameter: model.percent
 Expected: float
-
-❌ Value not in allowed range
-Parameter: model.animal (CLI argument, possibly from parameter sweep)
-Value/Type: 'pig' (str)
-Expected: 'cat' or 'dog'
+Actual: 1 (int)
 
 ❌ Type mismatch
-Parameter: model.stoy (config.yaml)
-Value/Type: `Toy`
+Parameter: model.animal
+Expected: Literal['cat', 'dog']
+Actual: 'pig' (str)
+
+❌ Type mismatch
+Parameter: model.stoy
 Expected: `SuperToy`
+Actual: `Toy`
 
 ❌ Type mismatch
-Parameter: model.stoy_cls (config.yaml)
-Value/Type: `SuperToy`
+Parameter: model.stoy_cls
 Expected: Type[`SuperToy`]
+Actual: `SuperToy`
 ```
 
 ### 檢查不預期或缺失的參數
 
 當需要確保設置包含物件所需的所有必要參數，且不包含無效參數時，使用參數對應性檢查。系統會比對設置與物件定義，檢查是否有拼寫錯誤的參數名稱或缺少必要的參數。
 
-Given 初始化有啟用參數對應性檢查的 `SymConfParser`
+Given 物件定義
+
+```python
+class Parent:
+    def __init__(self, c: int, d: float): ...
+class Child(Parent):
+    def __init__(self, a: int, b = 3, **kwargs):
+        super().__init__(c = a + b, **kwargs)
+def func(x: int, y: str): ...
+```
+
+And 初始化有啟用參數對應性檢查的 `SymConfParser`
 
 ```python
 parser = SymConfParser(validate_mapping=True) # 預設開啟
@@ -394,9 +405,15 @@ And 準備包含參數錯誤的設置
 ```yaml
 model:
     TYPE: Child
-    parcent: 0.1    # 錯誤：不預期的參數（應為 percent）
-    # 錯誤：缺少必要的參數 percent
-    # 正確：name 參數有預設值，可以省略
+    # 錯誤: 缺少必要參數 a
+    # 正確: b 有預設值，可以省略
+    # 錯誤: 缺少必要參數 d
+    c: 5 # 錯誤: 物件不接受參數 c
+    e: 7 # 錯誤: 物件不接受參數 e
+fn:
+    TYPE: func
+    x: 3
+    z: 5 # 錯誤: 物件不接受參數 z
 ```
 
 When 解析設置
@@ -405,16 +422,18 @@ Then 系統一次性報告所有參數驗證錯誤，包含型別或對應性錯
 ```bash
 ParameterValidationError: 
 
-❌ Unexpected parameter
-Parameter: model.parcent (config.yaml:3)
+❌ Missing parameters
+Parameters: model.a, model.d
 Object: Child
-Expected parameters: ['percent', 'animal', 'dummy', 'name', 'toy', 'stoy', 'toy_cls', 'stoy_cls', 'name', 'number', 'vocab', 'toy']
 
-❌ Missing parameter
-Expected parameter(s): percent
+❌ Unexpected parameters
+Parameters: model.c, model.e
 Object: Child
+
+❌ Unexpected parameters
+Parameters: fn.z
+Object: func
 ```
-- 支援 `**kwargs` 傳遞鏈的參數識別
 
 # 獲取幫助
 

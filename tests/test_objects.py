@@ -1,6 +1,18 @@
 """Test objects for SymConf testing."""
 
-from typing import Union, Literal, Optional
+from typing import Literal, Optional, Union
+
+
+class Toy:
+    """Base toy class for validation testing."""
+
+    pass
+
+
+class SuperToy(Toy):
+    """Super toy class that inherits from Toy."""
+
+    pass
 
 
 class Optimizer:
@@ -50,13 +62,13 @@ def create_optimizer(lr: float) -> Optimizer:
 
 
 class Parent:
-    """Test parent class for validation."""
+    """Test parent class for validation as shown in HOWTO.md."""
 
     def __init__(
         self,
         name: str,
-        number: Union[int, float, None] = None,
-        vocab: Union[None, list[float]] = None,
+        number: int | float | None = None,
+        vocab: None | list[float] = None,
         toy: Union[str, None] = None,
     ):
         """Initialize parent.
@@ -74,7 +86,7 @@ class Parent:
 
 
 class Child(Parent):
-    """Test child class for validation."""
+    """Test child class for validation as shown in HOWTO.md."""
 
     def __init__(
         self,
@@ -82,6 +94,10 @@ class Child(Parent):
         animal: Literal["cat", "dog"] = "dog",
         dummy=3,  # No type annotation
         name: Optional[str] = None,
+        toy: Toy | None = None,
+        stoy: SuperToy | None = None,
+        toy_cls: type[Toy] | None = None,
+        stoy_cls: type[SuperToy] | None = None,
         **kwargs,
     ):
         """Initialize child.
@@ -91,12 +107,20 @@ class Child(Parent):
             animal: Animal type
             dummy: Dummy parameter without type annotation
             name: Optional name
+            toy: Toy instance
+            stoy: SuperToy instance
+            toy_cls: Toy class type
+            stoy_cls: SuperToy class type
             **kwargs: Additional arguments passed to parent
         """
         super().__init__(name=name or "John", **kwargs)
         self.percent = percent
         self.animal = animal
         self.dummy = dummy
+        self.toy = toy
+        self.stoy = stoy
+        self.toy_cls = toy_cls
+        self.stoy_cls = stoy_cls
 
 
 class Experiment:
@@ -221,3 +245,44 @@ class ChildClass(ParentClass):
         super().__init__(a=3, c=percent * 5, **kwargs)
         self.percent = percent
         self.animal = animal
+
+
+# Parameter validation test objects (matching HOWTO.md examples exactly)
+class ParentForMapping:
+    """Parent class for parameter mapping validation tests."""
+
+    def __init__(self, c: int, d: float):
+        """Initialize parent.
+
+        Args:
+            c: Integer parameter
+            d: Float parameter
+        """
+        self.c = c
+        self.d = d
+
+
+class ChildForMapping(ParentForMapping):
+    """Child class for parameter mapping validation tests."""
+
+    def __init__(self, a: int, b=3, **kwargs):
+        """Initialize child.
+
+        Args:
+            a: Required integer parameter
+            b: Optional parameter with default
+            **kwargs: Passed to parent
+        """
+        super().__init__(c=a + b, **kwargs)
+        self.a = a
+        self.b = b
+
+
+def func_for_mapping(x: int, y: str):
+    """Function for parameter mapping validation tests.
+
+    Args:
+        x: Integer parameter
+        y: String parameter
+    """
+    pass

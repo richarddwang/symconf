@@ -129,11 +129,15 @@ class SymConfParser:
         Returns:
             Built configuration
         """
+
         # Step 1: Load YAML files
         config = {}
         for config_file in args.config_files:
             with open(config_file, "r") as f:
                 file_config = yaml.safe_load(f)
+                assert isinstance(file_config, dict), (
+                    f"Config file {config_file} must contain a YAML mapping at the top level."
+                )
                 config = deep_merge(config, file_config)
 
         # Load environment variables and update global environment
@@ -156,8 +160,7 @@ class SymConfParser:
         config = self._complete_default_values(config)
 
         # Step 5: Resolve interpolations
-        interpolation_engine = InterpolationEngine(config)
-        config = interpolation_engine.resolve_all_interpolations()
+        config = InterpolationEngine(config).resolve_all_interpolations()
 
         # Step 6: Process LIST types
         config = process_list_type(config)
@@ -370,26 +373,23 @@ class SymConfParser:
         Args:
             object_path: Path to the object
         """
-        try:
-            obj = import_object(object_path)
-            validator = ConfigValidator()
+        obj = import_object(object_path)
+        validator = ConfigValidator()
 
-            # Get parameter chain through inheritance and **kwargs
-            param_chain = validator.get_parameter_chain(obj)
+        # Get parameter chain through inheritance and **kwargs
+        param_chain = validator.get_parameter_chain(obj)
 
-            print(f"{object_path}:")
-            for level, (obj_info, params) in enumerate(param_chain.items()):
-                if level == 0:
-                    # Main object
-                    for param_name, param_info in params.items():
-                        self._print_parameter_info(param_name, param_info)
-                else:
-                    # Inherited/kwargs objects
-                    print(f"→ {obj_info}:")
-                    for param_name, param_info in params.items():
-                        self._print_parameter_info(param_name, param_info, indent="    ")
-        except Exception as e:
-            print(f"Error showing help for {object_path}: {e}")
+        print(f"{object_path}:")
+        for level, (obj_info, params) in enumerate(param_chain.items()):
+            if level == 0:
+                # Main object
+                for param_name, param_info in params.items():
+                    self._print_parameter_info(param_name, param_info)
+            else:
+                # Inherited/kwargs objects
+                print(f"→ {obj_info}:")
+                for param_name, param_info in params.items():
+                    self._print_parameter_info(param_name, param_info, indent="    ")
 
     def _print_parameter_info(self, name: str, info: Dict[str, Any], indent: str = "    ") -> None:
         """Print parameter information.

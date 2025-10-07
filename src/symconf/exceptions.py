@@ -1,5 +1,8 @@
 """Custom exceptions for SymConf."""
 
+from dataclasses import dataclass
+from typing import Any, Optional
+
 
 class SymConfError(Exception):
     """Base exception for SymConf errors."""
@@ -29,47 +32,86 @@ class CircularKwargsChainError(SymConfError):
         )
 
 
-class ParameterValidationError(SymConfError):
-    """Raised when parameter validation fails."""
+@dataclass
+class TypeValidationError:
+    """Represents a type validation error."""
 
-    def __init__(self, errors: list[dict]):
-        self.errors = errors
-        error_messages = []
-        for error in errors:
-            error_messages.append(f"❌ {error['type']}")
+    parameter: str
+    expected: str
+    actual_value: Any
+    actual_type: Optional[str] = None
 
-            if error.get("parameter"):
-                param_line = f"Parameter: {error['parameter']}"
-                if error.get("source_info"):
-                    param_line += f" ({error['source_info']})"
-                error_messages.append(param_line)
+    def format_error_message(self) -> str:
+        """Format error message for type mismatch.
 
-            if error.get("actual") is not None or error.get("show_value_type", True):
-                value_type_line = self._format_value_type(error.get("actual"), error.get("actual_type"))
-                if value_type_line:
-                    error_messages.append(f"Value/Type: {value_type_line}")
+        Returns:
+            Formatted error message string
+        """
+        actual_line = self._format_actual_value(self.actual_value, self.actual_type)
+        return f"❌ Type mismatch\nParameter: {self.parameter}\nExpected: {self.expected}\nActual: {actual_line}"
 
-            if error.get("expected"):
-                error_messages.append(f"Expected: {error['expected']}")
+    def _format_actual_value(self, actual_value: Any, actual_type: Optional[str]) -> str:
+        """Format actual value and type for error messages.
 
-            if error.get("object_name"):
-                error_messages.append(f"Object: {error['object_name']}")
+        Args:
+            actual_value: The actual value
+            actual_type: The actual type string
 
-            error_messages.append("")
-
-        super().__init__("\n".join(error_messages))
-
-    def _format_value_type(self, actual_value, actual_type: str | None) -> str:
+        Returns:
+            Formatted value and type string
+        """
         if actual_value is None:
             return "None (NoneType)"
 
-        if hasattr(actual_value, "__class__") and hasattr(actual_value.__class__, "__name__"):
-            if isinstance(actual_value, type):
-                return f"class type of `{actual_value.__name__}`"
-            elif not isinstance(actual_value, (str, int, float, bool, list, dict, tuple)):
-                return f"class instance of `{actual_value.__class__.__name__}`"
+        # Handle class types
+        if isinstance(actual_value, type):
+            return f"`{actual_value.__name__}`"
 
+        # Handle class instances
+        if hasattr(actual_value, "__class__") and hasattr(actual_value.__class__, "__name__"):
+            if not isinstance(actual_value, (str, int, float, bool, list, dict, tuple)):
+                return f"`{actual_value.__class__.__name__}`"
+
+        # Handle string values
         if isinstance(actual_value, str):
             return f"'{actual_value}' (str)"
 
+        # Default formatting
         return f"{actual_value} ({actual_type or type(actual_value).__name__})"
+
+
+@dataclass
+class MatchingError:
+    """Represents a parameter matching error."""
+
+    error_type: str  # "Missing parameters" or "Unexpected parameters"
+    parameters: list[str]
+    object_name: str
+
+    def format_error_message(self) -> str:
+        """Format error message for parameter matching errors.
+
+        Returns:
+            Formatted error message string
+        """
+        param_list = ", ".join(self.parameters)
+        return f"❌ {self.error_type}\nParameters: {param_list}\nObject: {self.object_name}"
+
+
+class ParameterValidationError(SymConfError):
+    """Raised when parameter validation fails."""
+
+    def __init__(self, errors: list[TypeValidationError | MatchingError]):
+        """Initialize parameter validation error.
+
+        Args:
+            errors: List of validation errors
+        """
+        self.errors = errors
+        error_messages = [""]  # Start with empty line
+
+        for error in errors:
+            error_messages.append(error.format_error_message())
+            error_messages.append("")  # Empty line between errors
+
+        super().__init__("\n".join(error_messages))
