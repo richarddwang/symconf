@@ -359,22 +359,22 @@ Then 系統一次性報告所有參數驗證錯誤，包含型別錯誤等等。
 ParameterValidationError: 
 
 ❌ Type mismatch
-Parameter: model.percent (config.yaml:3)
+Parameter: model.percent (config.yaml)
 Value/Type: 1 (int)
 Expected: float
 
 ❌ Value not in allowed range
-Parameter: model.animal (CLI argument)
+Parameter: model.animal (CLI argument, possibly from parameter sweep)
 Value/Type: 'pig' (str)
 Expected: 'cat' or 'dog'
 
 ❌ Type mismatch
-Parameter: model.stoy (config.yaml:8)
+Parameter: model.stoy (config.yaml)
 Value/Type: `Toy`
 Expected: `SuperToy`
 
 ❌ Type mismatch
-Parameter: model.stoy_cls (config.yaml:12)
+Parameter: model.stoy_cls (config.yaml)
 Value/Type: `SuperToy`
 Expected: Type[`SuperToy`]
 ```

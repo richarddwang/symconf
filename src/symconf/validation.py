@@ -46,20 +46,7 @@ class ConfigValidator:
     def validate_object_config(self, config: Dict[str, Any], path: str = "") -> List[Dict[str, Any]]:
         """Validate a single object configuration."""
         errors = []
-        try:
-            obj = import_object(config["TYPE"])
-        except Exception as e:
-            errors.append(
-                {
-                    "type": "Import error",
-                    "parameter": f"{path}.TYPE" if path else "TYPE",
-                    "expected": "Valid object path",
-                    "actual": config["TYPE"],
-                    "actual_type": "str",
-                    "message": f"Cannot import {config['TYPE']}: {e}",
-                }
-            )
-            return errors
+        obj = import_object(config["TYPE"])
 
         signature = self.get_object_signature(obj)
 

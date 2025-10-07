@@ -1,4 +1,5 @@
 """Conftest file for SymConf tests."""
+
 import pytest
 import tempfile
 import os
@@ -23,7 +24,7 @@ server:
     - 8080
     - 8081
 """)
-    
+
     config2 = temp_config_dir / "config2.yaml"
     config2.write_text("""
 server:
@@ -31,7 +32,7 @@ server:
   ports:
     - 9090
 """)
-    
+
     return {"config1": config1, "config2": config2}
 
 
@@ -99,7 +100,7 @@ callbacks:
   ckpt: save_model_callback
   debug: debug_callback
 """)
-    
+
     override_config = temp_config_dir / "override_callbacks.yaml"
     override_config.write_text("""
 callbacks:
@@ -107,7 +108,7 @@ callbacks:
   ckpt: REMOVE
   stop: early_stopping_callback
 """)
-    
+
     return {"default": default_config, "override": override_config}
 
 
@@ -115,16 +116,12 @@ callbacks:
 def setup_test_environment():
     """Set up test environment variables."""
     original_env = dict(os.environ)
-    
+
     # Set test environment variables
-    os.environ.update({
-        'BASE_FEATURE_SIZE': '10',
-        'FEATURE_SIZE': '64',
-        'TEST_VAR': 'test_value'
-    })
-    
+    os.environ.update({"BASE_FEATURE_SIZE": "10", "FEATURE_SIZE": "64", "TEST_VAR": "test_value"})
+
     yield
-    
+
     # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)

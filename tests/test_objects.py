@@ -1,28 +1,29 @@
 """Test objects for SymConf testing."""
+
 from typing import Union, Literal, Optional
 
 
 class Optimizer:
     """Test optimizer class."""
-    
+
     def __init__(self, lr: float):
         """Initialize optimizer.
-        
+
         Args:
             lr: Learning rate
         """
         self.lr = lr
-    
+
     def __repr__(self):
         return f"Optimizer(lr={self.lr})"
 
 
 class AwesomeModel:
     """Test model class."""
-    
+
     def __init__(self, learning_rate: float = 1e-4, hidden_size: int = 32, optimizer: Optional[Optimizer] = None):
         """Initialize model.
-        
+
         Args:
             learning_rate: Learning rate for the model
             hidden_size: Hidden layer size
@@ -31,17 +32,17 @@ class AwesomeModel:
         self.learning_rate = learning_rate
         self.hidden_size = hidden_size
         self.optimizer = optimizer
-    
+
     def __repr__(self):
         return f"AwesomeModel(learning_rate={self.learning_rate}, hidden_size={self.hidden_size}, optimizer={self.optimizer})"
 
 
 def create_optimizer(lr: float) -> Optimizer:
     """Factory function for creating optimizers.
-    
+
     Args:
         lr: Learning rate
-        
+
     Returns:
         Optimizer instance
     """
@@ -50,16 +51,16 @@ def create_optimizer(lr: float) -> Optimizer:
 
 class Parent:
     """Test parent class for validation."""
-    
+
     def __init__(
-        self, 
+        self,
         name: str,
-        number: Union[int, float, None] = None, 
+        number: Union[int, float, None] = None,
         vocab: Union[None, list[float]] = None,
         toy: Union[str, None] = None,
     ):
         """Initialize parent.
-        
+
         Args:
             name: Name parameter
             number: Numeric parameter
@@ -74,17 +75,17 @@ class Parent:
 
 class Child(Parent):
     """Test child class for validation."""
-    
+
     def __init__(
-        self, 
-        percent: float, 
-        animal: Literal['cat', 'dog'] = 'dog', 
-        dummy = 3,  # No type annotation
+        self,
+        percent: float,
+        animal: Literal["cat", "dog"] = "dog",
+        dummy=3,  # No type annotation
         name: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """Initialize child.
-        
+
         Args:
             percent: Percentage value
             animal: Animal type
@@ -100,33 +101,33 @@ class Child(Parent):
 
 class Experiment:
     """Test experiment class for instance methods."""
-    
+
     def __init__(self, seed: int):
         """Initialize experiment.
-        
+
         Args:
             seed: Random seed
         """
         self.seed = seed
-    
+
     def cross_validate(self, folds: int) -> dict[str, float]:
         """Perform cross validation.
-        
+
         Args:
             folds: Number of folds
-            
+
         Returns:
             Validation metrics
         """
-        return {'F1': 0.9, 'Precision': 0.95}
+        return {"F1": 0.9, "Precision": 0.95}
 
 
 def square(value: float) -> float:
     """Square a value.
-    
+
     Args:
         value: Input value
-        
+
     Returns:
         Squared value
     """
@@ -135,10 +136,10 @@ def square(value: float) -> float:
 
 class TestModel:
     """Simple test model for type validation."""
-    
-    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32, activation: str = 'relu'):
+
+    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32, activation: str = "relu"):
         """Initialize test model.
-        
+
         Args:
             learning_rate: Learning rate
             batch_size: Batch size
@@ -152,10 +153,10 @@ class TestModel:
 # Define the complex kwargs tracing chain as shown in HOWTO.md
 class BClass:
     """Test class B for kwargs tracing."""
-    
+
     def my_method(self, g: float):
         """Method with parameter g.
-        
+
         Args:
             g: 猩猩 parameter
         """
@@ -164,7 +165,7 @@ class BClass:
 
 def func(f: int = 5, **kwargs):
     """Function for kwargs tracing.
-    
+
     Args:
         f: 狐狸 parameter
         **kwargs: Additional kwargs
@@ -175,11 +176,11 @@ def func(f: int = 5, **kwargs):
 
 class AClass:
     """Test class A for kwargs tracing."""
-    
-    @classmethod  
+
+    @classmethod
     def create(cls, e, **kwargs) -> "AClass":
         """Factory method.
-        
+
         Args:
             e: Elephant parameter
             **kwargs: Additional kwargs
@@ -190,10 +191,10 @@ class AClass:
 
 class ParentClass:
     """Parent class for kwargs tracing."""
-    
+
     def __init__(self, a, b: bool, c, **kwargs):
         """Initialize parent.
-        
+
         Args:
             a: Alpha parameter
             b: Beta parameter
@@ -202,21 +203,21 @@ class ParentClass:
         """
         AClass.create(**kwargs)
         self.a = a
-        self.b = b  
+        self.b = b
         self.c = c
 
 
 class ChildClass(ParentClass):
     """Child class for comprehensive kwargs tracing testing."""
-    
-    def __init__(self, percent: float, animal: Literal['cat', 'dog'] = 'dog', **kwargs):
+
+    def __init__(self, percent: float, animal: Literal["cat", "dog"] = "dog", **kwargs):
         """Initialize child.
-        
+
         Args:
             percent: Percentage parameter
             animal: Animal parameter
             **kwargs: Additional kwargs passed to parent
         """
-        super().__init__(a=3, c=percent*5, **kwargs)
+        super().__init__(a=3, c=percent * 5, **kwargs)
         self.percent = percent
         self.animal = animal

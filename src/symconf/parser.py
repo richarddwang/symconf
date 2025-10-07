@@ -11,8 +11,8 @@ import yaml
 
 from .config import SymConfConfig
 from .exceptions import ParameterValidationError
+from .interpolation import InterpolationEngine
 from .utils import (
-    InterpolationEngine,
     deep_merge,
     import_object,
     load_dotenv,
@@ -267,7 +267,9 @@ class SymConfParser:
             ParameterValidationError: If validation fails
         """
         validator = ConfigValidator(
-            validate_type=self.validate_type, validate_mapping=self.validate_mapping, base_classes=self.base_classes
+            validate_type=self.validate_type,
+            validate_mapping=self.validate_mapping,
+            base_classes=self.base_classes,
         )
 
         errors = validator.validate_recursive(config)
