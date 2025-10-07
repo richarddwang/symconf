@@ -370,13 +370,13 @@ Expected: 'cat' or 'dog'
 
 ❌ Type mismatch
 Parameter: model.stoy (config.yaml:8)
-Value/Type: class instance of `Toy`
-Expected: class/subclass instance of `SuperToy`
+Value/Type: `Toy`
+Expected: `SuperToy`
 
 ❌ Type mismatch
 Parameter: model.stoy_cls (config.yaml:12)
-Value/Type: class instance of `SuperToy`
-Expected: class/subclass type of `SuperToy`
+Value/Type: `SuperToy`
+Expected: Type[`SuperToy`]
 ```
 
 ### 檢查不預期或缺失的參數

@@ -1,0 +1,5 @@
+# Test configuration for merging
+server:
+  timeout: 10
+  ports:
+    - 9090

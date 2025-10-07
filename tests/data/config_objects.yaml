@@ -1,0 +1,8 @@
+# Test configuration with object types
+model:
+  TYPE: tests.test_objects.AwesomeModel
+  learning_rate: 1e-3
+  hidden_size: 64
+  optimizer:
+    TYPE: tests.test_objects.create_optimizer
+    lr: 0.01
