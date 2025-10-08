@@ -3,7 +3,7 @@
 import importlib
 import os
 from copy import deepcopy
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Type
 
 
 def deep_merge(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,12 +49,27 @@ def import_object(path: str) -> Any:
     module_path = ".".join(parts[:-1])
     object_name = parts[-1]
 
-    try:
-        module = importlib.import_module(module_path)
-        return getattr(module, object_name)
-    except (ImportError, AttributeError) as e:
-        raise ImportError(f"Cannot import {path}: {e}")
+    module = importlib.import_module(module_path)
+    return getattr(module, object_name)
 
+def get_method_class(method: Callable) -> Type:
+    """Get the class that defines a given method.
+
+    Args:
+        method: Method to inspect
+
+    Returns:
+        Class that defines the method
+
+    Raises:
+        ValueError: If method is not bound to a class
+    """
+    if hasattr(method, "__self__"):
+        return method.__self__.__class__
+    else:
+        module = importlib.import_module(method.__module__)
+        class_name = method.__qualname__.split('.')[0]
+        return getattr(module, class_name)
 
 def load_dotenv(file_path: str) -> Dict[str, str]:
     """Load environment variables from a dotenv file.

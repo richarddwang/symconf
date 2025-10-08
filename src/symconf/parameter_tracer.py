@@ -15,14 +15,11 @@ class ParameterChainTracer:
         """Initialize parameter chain tracer."""
         pass
 
-    def trace_parameter_chain(
-        self, obj: OBJECT_TYPE, exclude_hardcoded: bool = False
-    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def trace_parameter_chain(self, obj: OBJECT_TYPE) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Trace parameter chain through kwargs passing.
 
         Args:
             obj: Object to trace parameter chain for
-            exclude_hardcoded: Whether to exclude parameters that are hardcoded by callers
 
         Returns:
             Dict mapping object names to their parameter signatures
@@ -55,6 +52,20 @@ class ParameterChainTracer:
         obj_name = self._get_object_full_name(obj)
         _trace_kwargs(obj, obj_name)
         return chain
+
+    def get_all_parameters(self, obj: OBJECT_TYPE) -> Dict[str, Dict[str, Any]]:
+        """Get all parameters in the parameter chain.
+
+        Args:
+            obj: Object to get parameters for
+        Returns:
+            Dict mapping parameter names to their informations
+        """
+        param_chain = self.trace_parameter_chain(obj)
+        all_params = {}
+        for obj_name, signature in param_chain.items():
+            all_params.update(signature)
+        return all_params
 
     def format_help_display(self, obj: OBJECT_TYPE) -> str:
         """Format parameter chain for help display.

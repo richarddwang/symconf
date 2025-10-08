@@ -134,7 +134,7 @@ class SymConfParser:
         config = {}
         for config_file in args.config_files:
             with open(config_file, "r") as f:
-                file_config = yaml.safe_load(f)
+                file_config = yaml.unsafe_load(f)
                 assert isinstance(file_config, dict), (
                     f"Config file {config_file} must contain a YAML mapping at the top level."
                 )

@@ -1,7 +1,8 @@
 """Custom exceptions for SymConf."""
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from textwrap import dedent
+from typing import Any, Type
 
 
 class SymConfError(Exception):
@@ -37,9 +38,9 @@ class TypeValidationError:
     """Represents a type validation error."""
 
     parameter: str
-    expected: str
+    expected_type: Type
     actual_value: Any
-    actual_type: Optional[str] = None
+    actual_type: Type
 
     def format_error_message(self) -> str:
         """Format error message for type mismatch.
@@ -47,37 +48,12 @@ class TypeValidationError:
         Returns:
             Formatted error message string
         """
-        actual_line = self._format_actual_value(self.actual_value, self.actual_type)
-        return f"❌ Type mismatch\nParameter: {self.parameter}\nExpected: {self.expected}\nActual: {actual_line}"
-
-    def _format_actual_value(self, actual_value: Any, actual_type: Optional[str]) -> str:
-        """Format actual value and type for error messages.
-
-        Args:
-            actual_value: The actual value
-            actual_type: The actual type string
-
-        Returns:
-            Formatted value and type string
-        """
-        if actual_value is None:
-            return "None (NoneType)"
-
-        # Handle class types
-        if isinstance(actual_value, type):
-            return f"`{actual_value.__name__}`"
-
-        # Handle class instances
-        if hasattr(actual_value, "__class__") and hasattr(actual_value.__class__, "__name__"):
-            if not isinstance(actual_value, (str, int, float, bool, list, dict, tuple)):
-                return f"`{actual_value.__class__.__name__}`"
-
-        # Handle string values
-        if isinstance(actual_value, str):
-            return f"'{actual_value}' (str)"
-
-        # Default formatting
-        return f"{actual_value} ({actual_type or type(actual_value).__name__})"
+        return dedent(f"""\
+            ❌ Type mismatch
+            Parameter: {self.parameter}
+            Expected: {self.expected_type}
+            Actual: {self.actual_value} ({self.actual_value})\
+            """)
 
 
 @dataclass
