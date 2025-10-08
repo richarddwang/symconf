@@ -333,8 +333,9 @@ class TestConfigurationBuilding:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.Child",
-                # Missing required parameter 'percent'
+                "TYPE": "tests.conftest.ChildForMapping",
+                # Missing required parameter 'a'
+                # Missing required parameter 'd' (for parent)
                 "c": 5,  # Unexpected parameter
                 "e": 7,  # Unexpected parameter
             },
