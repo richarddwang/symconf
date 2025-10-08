@@ -37,9 +37,13 @@ def parser_without_validation() -> SymConfParser:
 
 
 # Test classes for validation tests
-class Parent:
-    """Test parent class for validation."""
+class Toy: ...
 
+
+class SuperToy(Toy): ...
+
+
+class Parent:
     def __init__(
         self,
         name: str,
@@ -47,14 +51,6 @@ class Parent:
         vocab: None | list[float] = None,
         toy: Union[str, None] = None,
     ):
-        """Initialize parent.
-
-        Args:
-            name: Name parameter
-            number: Number parameter
-            vocab: Vocabulary parameter
-            toy: Toy parameter
-        """
         self.name = name
         self.number = number
         self.vocab = vocab
@@ -70,25 +66,12 @@ class Child(Parent):
         animal: Literal["cat", "dog"] = "dog",
         dummy=3,
         name: Optional[str] = None,
-        toy: Optional["Toy"] = None,
-        stoy: Optional["SuperToy"] = None,
-        toy_cls: Optional[Type["Toy"]] = None,
-        stoy_cls: Optional[Type["SuperToy"]] = None,
+        toy: Optional[Toy] = None,
+        stoy: Optional[SuperToy] = None,
+        toy_cls: Optional[Type[Toy]] = None,
+        stoy_cls: Optional[Type[SuperToy]] = None,
         **kwargs,
     ):
-        """Initialize child.
-
-        Args:
-            percent: Percentage parameter
-            animal: Animal type parameter
-            dummy: Dummy parameter
-            name: Name parameter
-            toy: Toy parameter
-            stoy: Super toy parameter
-            toy_cls: Toy class parameter
-            stoy_cls: Super toy class parameter
-            **kwargs: Additional keyword arguments
-        """
         super().__init__(name=name or "John", **kwargs)
         self.percent = percent
         self.animal = animal
@@ -97,22 +80,6 @@ class Child(Parent):
         self.stoy = stoy
         self.toy_cls = toy_cls
         self.stoy_cls = stoy_cls
-
-
-class Toy:
-    """Test toy class."""
-
-    def __init__(self):
-        """Initialize toy."""
-        pass
-
-
-class SuperToy(Toy):
-    """Test super toy class."""
-
-    def __init__(self):
-        """Initialize super toy."""
-        super().__init__()
 
 
 class AwesomeModel:

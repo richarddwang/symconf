@@ -275,17 +275,18 @@ class TestConfigurationBuilding:
             animal: pig                          # 錯誤：值應該是 'cat' 或 'dog'  
             dummy: false                         # 正確：無型別註解不檢查
             toy:                                 # 正確：物件返回值符合型別
-                TYPE: tests.conftest.SuperToy
-            stoy:
-                TYPE: tests.conftest.Toy                        # 錯誤：Toy 不是 SuperToy 子類別
+                TYPE: tests.conftest.SuperToy 
+            stoy:                                # 錯誤：Toy 不是 SuperToy
+                TYPE: tests.conftest.Toy         
             toy_cls: !!python/name:tests.conftest.Toy  # 正確：使用 PyYAML 標籤傳入類別本身
+            stoy_cls:                            # 錯誤：期待型別而非實例
+                TYPE: tests.conftest.SuperToy
             number:                              # 正確：函式返回值符合型別
                 TYPE: tests.conftest.square
                 value: 0.3
             name: null                           # 正確：以子類別定義為準
             vocab: [a, b]                        # 正確：容器型別只檢查第一層
-            stoy_cls:                            # 錯誤：期待型別而非實例
-                TYPE: tests.conftest.SuperToy
+            
         """
         config_path = temp_dir / "config.yaml"
         with open(config_path, "w") as f:
@@ -314,7 +315,7 @@ class TestConfigurationBuilding:
 
         ❌ Type mismatch
         Parameter: model.stoy
-        Expected: tests.conftest.SuperToy
+        Expected: Optional[tests.conftest.SuperToy]
         Actual: ... (tests.conftest.Toy)
 
         ❌ Type mismatch
@@ -362,15 +363,15 @@ class TestConfigurationBuilding:
         message = """
         ❌ Missing parameters
         Parameters: model.a, model.d
-        Object: tests.conftest.Child
+        Object: tests.conftest.ChildForMapping
 
         ❌ Unexpected parameters
         Parameters: model.c, model.e
-        Object: tests.conftest.Child
+        Object: tests.conftest.ChildForMapping
 
         ❌ Unexpected parameters
         Parameters: fn.z
-        Object: tests.conftest.func
+        Object: tests.conftest.square
         """
         assert dedent(message).strip() in error_msg
 
