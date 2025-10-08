@@ -168,12 +168,6 @@ def create_optimizer(lr: float) -> Optimizer:
 
 
 def func(act: str, message: str = "hello"):
-    """Test function for Step 4 default completion example.
-
-    Args:
-        act: Activation function name
-        message: Message parameter with default
-    """
     pass
 
 
@@ -181,28 +175,13 @@ class BaseModel:
     """Test base model class for Step 4 default completion example."""
 
     def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32, **kwargs):
-        """Initialize base model.
-
-        Args:
-            learning_rate: Learning rate parameter
-            batch_size: Batch size parameter
-            **kwargs: Additional keyword arguments passed to func
-        """
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         func(**kwargs)
 
 
 class AwesomeModelStep4(BaseModel):
-    """Test awesome model class for Step 4 default completion example."""
-
     def __init__(self, loss_scale: float = 1.0, **kwargs):
-        """Initialize awesome model.
-
-        Args:
-            loss_scale: Loss scale parameter
-            **kwargs: Additional keyword arguments passed to parent
-        """
         self.loss_scale = loss_scale
         super().__init__(batch_size=16, **kwargs)
 
@@ -288,3 +267,70 @@ def cleanup_env_vars(*var_names: str) -> None:
     """
     for var_name in var_names:
         os.environ.pop(var_name, None)
+
+
+# Additional classes for kwargs chain testing from HOWTO.md
+class BClass:
+    """Test B class for kwargs chain testing."""
+
+    def my_method(self, g: float):
+        """Test method.
+
+        Args:
+            g: 猩猩
+        """
+        pass
+
+
+def func_with_kwargs(f: int = 5, **kwargs):
+    """Test function with kwargs.
+
+    Args:
+        f: 狐狸
+        **kwargs: Additional arguments passed to BClass.my_method
+    """
+    b = BClass()
+    b.my_method(**kwargs)
+
+
+class AClass:
+    """Test A class for kwargs chain testing."""
+
+    @classmethod
+    def create(cls, e, **kwargs) -> "AClass":
+        """Create AClass instance.
+
+        Args:
+            e: Parameter e
+            **kwargs: Additional arguments passed to func
+        """
+        func_with_kwargs(**kwargs)
+        return cls()
+
+
+class ParentForKwargs:
+    """Test parent class for kwargs chain testing."""
+
+    def __init__(self, a, b: bool, c, **kwargs):
+        """Initialize parent.
+
+        Args:
+            a: Parameter a
+            b: Parameter b
+            c: Parameter c
+            **kwargs: Additional arguments passed to AClass.create
+        """
+        AClass.create(**kwargs)
+
+
+class ChildForKwargs(ParentForKwargs):
+    """Test child class for kwargs chain testing."""
+
+    def __init__(self, d, **kwargs):
+        """Initialize child.
+
+        Args:
+            d: Parameter d
+            **kwargs: Additional arguments passed to parent
+        """
+        super().__init__(a=3, c=d * 5, **kwargs)

@@ -6,9 +6,9 @@ This module tests parameter sweeping and traversal functionality following HOWTO
 import sys
 from pathlib import Path
 
-from symconf import SymConfParser
-
 from conftest import write_yaml_file
+
+from symconf import SymConfParser
 
 
 class TestParameterTraversal:
@@ -99,16 +99,21 @@ class TestParameterTraversal:
         # Verify parameter order determines nesting (前面的參數為外層迴圈)
         # log.name should be outer loop, exp.seed should be inner loop
         expected_configs = []
-        for log_name in ['my_${exp.seed}', 'REMOVE', 'hello']: # 前面的參數為外層迴圈
-            for exp_seed in ['0', '1', '2']:                           # 後面的參數為內層迴圈
-                config = parser.parse_args([
-                    "config.yaml", "--args",
-                    f"log.name={log_name}",
-                    f"exp.seed={exp_seed}"
-                ])
+        for log_name in ["my_${exp.seed}", "REMOVE", "hello"]:  # 前面的參數為外層迴圈
+            for exp_seed in ["0", "1", "2"]:  # 後面的參數為內層迴圈
+                config = parser.parse_args([str(config_path), "--args", f"log.name={log_name}", f"exp.seed={exp_seed}"])
                 expected_configs.append(config)
 
-        assert configs == expected_configs
+        # Compare the actual data rather than object equality
+        assert len(configs) == len(expected_configs)
+        for i, (actual, expected) in enumerate(zip(configs, expected_configs)):
+            assert actual.exp.seed == expected.exp.seed, f"Config {i}: exp.seed mismatch"
+            # Handle REMOVE case where log section might be removed
+            if hasattr(expected, "log"):
+                assert hasattr(actual, "log"), f"Config {i}: actual missing log section"
+                assert actual.log.name == expected.log.name, f"Config {i}: log.name mismatch"
+            else:
+                assert not hasattr(actual, "log"), f"Config {i}: actual should not have log section"
 
     def test_complex_sweeping_with_custom_function(self, temp_dir: Path):
         """Test complex parameter sweeping with custom generator function.

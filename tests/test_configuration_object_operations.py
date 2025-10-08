@@ -5,9 +5,10 @@ This module tests configuration object manipulation functionality following HOWT
 
 from pathlib import Path
 
-from symconf import SymConfParser
-
 from conftest import write_yaml_file
+
+from symconf import SymConfParser, SymConfConfig
+import tests.conftest as conftest
 
 
 class TestConfigurationObjectOperations:
@@ -119,11 +120,10 @@ class TestConfigurationObjectOperations:
         realized_config = config.realize()
 
         # Verify object realization
-        from .conftest import AwesomeModelWithOptimizer, Optimizer
 
-        assert isinstance(realized_config["model"], AwesomeModelWithOptimizer)
+        assert isinstance(realized_config["model"], conftest.AwesomeModelWithOptimizer)
         assert realized_config["model"].hidden_size == 64
-        assert isinstance(realized_config["model"].optimizer, Optimizer)
+        assert isinstance(realized_config["model"].optimizer, conftest.Optimizer)
         assert realized_config["model"].optimizer.lr == 0.01
 
     def test_partial_object_realization_with_overwrites(self, temp_dir: Path):
@@ -152,9 +152,7 @@ class TestConfigurationObjectOperations:
         model = config.model.realize(overwrites={"optimizer.lr": 0.02})
 
         # Verify overwrite was applied
-        from .conftest import AwesomeModelWithOptimizer
-
-        assert isinstance(model, AwesomeModelWithOptimizer)
+        assert isinstance(model, conftest.AwesomeModelWithOptimizer)
         assert model.optimizer.lr == 0.02  # Overridden value
 
     def test_realize_without_type_returns_config(self, temp_dir: Path):
@@ -177,9 +175,8 @@ class TestConfigurationObjectOperations:
         realized = config.realize()
 
         # Model should be realized, training should remain as SymConfConfig
-        from .conftest import AwesomeModel, SymConfConfig
 
-        assert isinstance(realized["model"], AwesomeModel)
+        assert isinstance(realized["model"], conftest.AwesomeModel)
         assert isinstance(realized, SymConfConfig)
         assert hasattr(realized, "training")
 
@@ -204,12 +201,10 @@ class TestConfigurationObjectOperations:
         config = parser.parse_args([str(config_path)])
 
         # Manual realization using kwargs
-        from .conftest import AwesomeModel
-
-        model = AwesomeModel(**config.model.kwargs)
+        model = conftest.AwesomeModel(**config.model.kwargs)
 
         # Verify manual realization
-        assert isinstance(model, AwesomeModel)
+        assert isinstance(model, conftest.AwesomeModel)
         assert model.learning_rate == 1e-3
         assert model.batch_size == 64
 
@@ -279,9 +274,7 @@ class TestConfigurationObjectOperations:
         config = parser.parse_args([str(config_path)])
 
         # Manual instance method realization
-        from .conftest import Experiment
-
-        experiment = Experiment(**config.experiment.kwargs)
+        experiment = conftest.Experiment(**config.experiment.kwargs)
         metrics = experiment.cross_validate(**config.method.kwargs)
 
         # Verify same result
@@ -296,7 +289,7 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "AwesomeModel",
+                "TYPE": "tests.conftest.AwesomeModel",
                 "hidden_size": 64,
             },
             "dataset": {
@@ -306,16 +299,22 @@ class TestConfigurationObjectOperations:
         config_path = temp_dir / "config.yaml"
         write_yaml_file(config_path, config_data)
 
-        parser = SymConfParser()
+        parser = SymConfParser(validate_mapping=False)
         config = parser.parse_args([str(config_path)])
 
         # Serialize to flattened format
         pretty_config = config.pretty()
 
         # Verify flattened keys
-        expected_keys = {"model.TYPE", "model.hidden_size", "dataset.batch_size"}
+        expected_keys = {
+            "model.TYPE",
+            "model.hidden_size",
+            "model.batch_size",
+            "model.learning_rate",
+            "dataset.batch_size",
+        }
         assert set(pretty_config.keys()) == expected_keys
-        assert pretty_config["model.TYPE"] == "AwesomeModel"
+        assert pretty_config["model.TYPE"] == "tests.conftest.AwesomeModel"
         assert pretty_config["model.hidden_size"] == 64
         assert pretty_config["dataset.batch_size"] == 32
 
@@ -327,7 +326,7 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "AwesomeModel",
+                "TYPE": "tests.conftest.AwesomeModel",
                 "hidden_size": 64,
             },
             "dataset": {
@@ -337,7 +336,7 @@ class TestConfigurationObjectOperations:
         config_path = temp_dir / "config.yaml"
         write_yaml_file(config_path, config_data)
 
-        parser = SymConfParser()
+        parser = SymConfParser(validate_mapping=False)
         config = parser.parse_args([str(config_path)])
 
         # Serialize with exclusions
@@ -366,8 +365,6 @@ class TestConfigurationObjectOperations:
         realized_model = config.model.realize()
 
         # Create new config with realized object
-        from symconf import SymConfConfig
-
         new_config = SymConfConfig({"model": realized_model})
 
         # Serialize - should convert back to class name
