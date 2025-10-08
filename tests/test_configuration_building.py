@@ -323,7 +323,7 @@ class TestConfigurationBuilding:
         Expected: Type[tests.conftest.SuperToy]
         Actual: ... (tests.conftest.SuperToy)
         """
-        assert dedent(message).strip() in error_msg
+        assert set(dedent(message).strip().split("\n\n")) == set(error_msg.split("\n\n"))
 
     def test_step6_parameter_mapping_validation(self, temp_dir: Path):
         """Test Step 6: Parameter mapping validation.
@@ -373,7 +373,7 @@ class TestConfigurationBuilding:
         Parameters: fn.z
         Object: tests.conftest.square
         """
-        assert dedent(message).strip() in error_msg
+        assert set(dedent(message).strip().split("\n\n")) == set(error_msg.split("\n\n"))
 
     def test_complete_configuration_building_process(self, temp_dir: Path):
         """Test the complete configuration building process with all steps."""

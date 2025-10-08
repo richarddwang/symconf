@@ -1,3 +1,5 @@
+"""Variable interpolation engine for SymConf configurations."""
+
 import os
 import re
 from typing import Any, Dict, Set
@@ -12,20 +14,21 @@ class InterpolationEngine:
         """Initialize interpolation engine.
 
         Args:
-            config: Configuration data
+            config: Configuration data  # (nested dict with string interpolations)
 
         Note:
             Environment variables are accessed from os.environ directly
         """
-        self.config = config
-        self.resolving: Set[str] = set()
+        self.config = config  # (nested dict containing configuration values)
+        self.resolving: Set[str] = set()  # (parameter paths currently being resolved for cycle detection)
 
     def resolve_all_interpolations(self) -> Dict[str, Any]:
         """Resolve all interpolations in the configuration in-place.
 
         Returns:
-            Configuration with all interpolations resolved
+            Configuration with all interpolations resolved  # (nested dict with interpolations replaced)
         """
+        # Process the entire configuration tree recursively
         self._resolve_recursive(self.config)
         return self.config
 
@@ -33,9 +36,10 @@ class InterpolationEngine:
         """Recursively resolve interpolations in-place.
 
         Args:
-            data: Data to process (modified in-place)
-            current_path: Current parameter path for cycle detection
+            data: Data to process (modified in-place)  # (dict, list, or scalar value)
+            current_path: Current parameter path for cycle detection  # (dot-separated path)
         """
+        # Handle dictionary structures
         if isinstance(data, dict):
             for key, value in data.items():
                 new_path = f"{current_path}.{key}" if current_path else key
@@ -45,6 +49,7 @@ class InterpolationEngine:
                 else:
                     # Recursively process nested structures
                     self._resolve_recursive(value, new_path)
+        # Handle list structures
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 if isinstance(item, str) and "${" in item:
@@ -58,11 +63,11 @@ class InterpolationEngine:
         """Resolve all interpolations in a string value.
 
         Args:
-            value: String value containing interpolations
-            current_path: Current parameter path for cycle detection
+            value: String value containing interpolations  # (string with ${...} patterns)
+            current_path: Current parameter path for cycle detection  # (dot-separated path)
 
         Returns:
-            Resolved value
+            Resolved value  # (string, int, float, or other type after resolution)
 
         Raises:
             CircularInterpolationError: If circular dependency is detected
@@ -72,19 +77,21 @@ class InterpolationEngine:
             cycle = list(self.resolving) + [current_path]
             raise CircularInterpolationError(cycle)
 
-        # Find all interpolation matches
+        # Find all interpolation matches using regex pattern
         pattern = r"\$\{([^}]+)\}"
         matches = re.findall(pattern, value)
 
+        # No interpolations found, return as-is
         if not matches:
             return value
 
-        # Add to resolving set if we have a path
+        # Add to resolving set if we have a path (for cycle detection)
         if current_path:
             self.resolving.add(current_path)
 
         try:
             result = value
+            # Resolve each interpolation match
             for match in matches:
                 # Resolve the match
                 replacement = self._resolve_match(match)
@@ -99,7 +106,7 @@ class InterpolationEngine:
 
             return result
         finally:
-            # Remove from resolving set
+            # Remove from resolving set (cleanup)
             if current_path:
                 self.resolving.discard(current_path)
 
@@ -107,19 +114,19 @@ class InterpolationEngine:
         """Resolve a single interpolation match.
 
         Args:
-            match: The interpolation content (without ${})
+            match: The interpolation content (without ${})  # (content inside ${...})
 
         Returns:
-            Resolved value
+            Resolved value  # (environment value, parameter value, or expression result)
 
         Raises:
             ValueError: If environment variable not found or expression evaluation fails
         """
-        # Expression interpolation (contains backticks)
+        # Expression interpolation (contains backticks for variable references)
         if "`" in match:
             return self._resolve_expression(match)
 
-        # Environment variable interpolation (all uppercase)
+        # Environment variable interpolation (all uppercase convention)
         if match.isupper():
             if match in os.environ:
                 env_value = os.environ[match]
@@ -132,22 +139,22 @@ class InterpolationEngine:
             else:
                 raise ValueError(f"Environment variable '{match}' not found")
 
-        # Parameter interpolation (cross-reference)
+        # Parameter interpolation (cross-reference to other config parameters)
         return self._get_value_of_param(match)
 
     def _resolve_expression(self, expr: str) -> Any:
         """Resolve expression interpolation with backtick variables.
 
         Args:
-            expr: Expression with backtick variables
+            expr: Expression with backtick variables  # (math expression with `var.path` references)
 
         Returns:
-            Evaluated result
+            Evaluated result  # (numeric result of expression evaluation)
 
         Raises:
             ValueError: If expression contains unsafe operations or evaluation fails
         """
-        # Replace `var.path` with actual values
+        # Replace `var.path` with actual values using regex substitution
         pattern = r"`([^`]+)`"
 
         def replace_var(m):
@@ -155,23 +162,27 @@ class InterpolationEngine:
             value = self._get_value_of_param(var_path)
             return str(value)
 
+        # Substitute all backtick variables with their values
         interpolated_expr = re.sub(pattern, replace_var, expr)
+        # Evaluate the final expression
         return eval(interpolated_expr)
 
     def _get_raw_value_for_param(self, key_path: str) -> Any:
         """Get raw value from nested dict using dot notation (no interpolation resolution).
 
         Args:
-            key_path: Dot-separated key path
+            key_path: Dot-separated key path  # (e.g., "parent.child.grandchild")
 
         Returns:
-            Raw value at the specified path
+            Raw value at the specified path  # (unprocessed value from config)
 
         Raises:
             KeyError: If key path is not found
         """
-        keys = key_path.split(".")
+        keys = key_path.split(".")  # Split path into individual keys
         value = self.config
+
+        # Navigate through nested dictionary structure
         for key in keys:
             if isinstance(value, dict) and key in value:
                 value = value[key]
@@ -183,16 +194,16 @@ class InterpolationEngine:
         """Get value from nested dict using dot notation with full interpolation resolution.
 
         Args:
-            key_path: Dot-separated key path
+            key_path: Dot-separated key path  # (e.g., "parent.child.grandchild")
 
         Returns:
-            Value at the specified path, with all interpolations resolved
+            Value at the specified path, with all interpolations resolved  # (fully processed value)
 
         Raises:
             KeyError: If key path is not found
             CircularInterpolationError: If circular dependency is detected
         """
-        # Check if we're already resolving this key (circular dependency)
+        # Check if we're already resolving this key (circular dependency detection)
         if key_path in self.resolving:
             cycle = list(self.resolving) + [key_path]
             raise CircularInterpolationError(cycle)
@@ -204,6 +215,7 @@ class InterpolationEngine:
         if isinstance(raw_value, str) and "${" in raw_value:
             resolved_value = self._resolve_value(raw_value, key_path)
         else:
+            # Value doesn't need interpolation
             resolved_value = raw_value
 
         return resolved_value

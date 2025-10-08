@@ -13,15 +13,18 @@ class SymConfConfig:
         """Initialize configuration object.
 
         Args:
-            data: Configuration data dictionary
+            data: Configuration data dictionary  # (nested dict with config values)
         """
         # Store the actual data in __dict__ to enable attribute access
         for key, value in data.items():
             if isinstance(value, dict):
+                # Recursively convert nested dicts to SymConfConfig
                 self.__dict__[key] = SymConfConfig(value)
             elif isinstance(value, list) and any(isinstance(item, dict) for item in value):
+                # Convert dict items in lists to SymConfConfig
                 self.__dict__[key] = [SymConfConfig(item) if isinstance(item, dict) else item for item in value]
             else:
+                # Store primitive values directly
                 self.__dict__[key] = value
 
     def __getitem__(self, key: str) -> Any:
@@ -68,15 +71,19 @@ class SymConfConfig:
         """Get kwargs dict with special keys filtered out.
 
         Returns:
-            Dictionary suitable for **kwargs unpacking
+            Dictionary suitable for **kwargs unpacking  # (filtered config dict)
         """
-        filtered = {}
+        filtered = {}  # Dict[str, Any] (kwargs-ready dictionary)
+
+        # Filter out special keys and convert nested configs
         for key, value in self.__dict__.items():
             if key in ["TYPE", "CLASS"]:
-                continue
+                continue  # Skip special configuration keys
             if isinstance(value, SymConfConfig):
+                # Convert nested SymConfConfig to plain dict
                 filtered[key] = value._to_dict()
             else:
+                # Use value as-is
                 filtered[key] = value
         return filtered
 
@@ -84,18 +91,21 @@ class SymConfConfig:
         """Realize object(s) from configuration.
 
         Args:
-            overwrites: Optional parameter overwrites using dot notation
+            overwrites: Optional parameter overwrites using dot notation  # (key-value overrides)
 
         Returns:
-            Realized object or updated configuration
+            Realized object or updated configuration  # (instantiated object or config)
         """
+        # Handle configurations without TYPE (not object definitions)
         if "TYPE" not in self.__dict__:
             # No TYPE, just return SymConfConfig with realized children
-            result = {}
+            result = {}  # Dict[str, Any] (processed configuration values)
             for key, value in self.__dict__.items():
                 if isinstance(value, SymConfConfig):
+                    # Recursively realize nested configurations
                     result[key] = value.realize(overwrites)
                 else:
+                    # Keep primitive values as-is
                     result[key] = value
             return SymConfConfig(result)
 
@@ -104,27 +114,36 @@ class SymConfConfig:
         if overwrites:
             config_data = self._apply_overwrites(config_data, overwrites)
 
+        # Realize the object with TYPE
         return self._realize_single_object(config_data)
 
     def pretty(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         """Serialize configuration to flattened format.
 
         Args:
-            exclude: List of parameter paths to exclude
+            exclude: List of parameter paths to exclude  # (dot-notation paths to skip)
 
         Returns:
-            Flattened configuration dictionary
+            Flattened configuration dictionary  # (flattened key-value mapping)
         """
         exclude = exclude or []
-        result = {}
+        result = {}  # Dict[str, Any] (flattened configuration)
 
         def _flatten(data: Dict[str, Any], prefix: str = "") -> None:
+            """Recursively flatten nested configuration data.
+
+            Args:
+                data: Data to flatten  # (nested dict structure)
+                prefix: Current key prefix  # (dot-separated path prefix)
+            """
             for key, value in data.items():
                 full_key = f"{prefix}.{key}" if prefix else key
 
+                # Skip excluded paths
                 if full_key in exclude:
                     continue
 
+                # Handle nested structures
                 if isinstance(value, SymConfConfig):
                     _flatten(value._to_dict(), full_key)
                 elif isinstance(value, dict):
@@ -140,6 +159,7 @@ class SymConfConfig:
                     else:
                         result[full_key] = value
 
+        # Start flattening from root level
         _flatten(self._to_dict())
         return result
 
@@ -147,13 +167,15 @@ class SymConfConfig:
         """Apply overwrites using dot notation.
 
         Args:
-            data: Original configuration data
-            overwrites: Overwrites with dot notation keys
+            data: Original configuration data  # (nested dict with config values)
+            overwrites: Overwrites with dot notation keys  # (key-value overrides)
 
         Returns:
-            Updated configuration data
+            Updated configuration data  # (modified configuration dict)
         """
         result = copy.deepcopy(data)
+
+        # Apply each overwrite using dot notation
         for key_path, value in overwrites.items():
             self._set_nested_value(result, key_path, value)
         return result
@@ -162,29 +184,34 @@ class SymConfConfig:
         """Set nested value using dot notation.
 
         Args:
-            data: Dictionary to modify
-            key_path: Dot-separated key path
-            value: Value to set
+            data: Dictionary to modify  # (nested dict to update)
+            key_path: Dot-separated key path  # (e.g., "parent.child.grandchild")
+            value: Value to set  # (value to assign at the path)
         """
-        keys = key_path.split(".")
+        keys = key_path.split(".")  # Split path into individual keys
         current = data
+
+        # Navigate to parent of target key, creating nested dicts as needed
         for key in keys[:-1]:
             if key not in current:
                 current[key] = {}
             current = current[key]
+
+        # Set the final value
         current[keys[-1]] = value
 
     def _realize_single_object(self, config_data: Dict[str, Any]) -> Any:
         """Realize a single object from configuration.
 
         Args:
-            config_data: Configuration data dictionary
+            config_data: Configuration data dictionary  # (config with TYPE key)
 
         Returns:
-            Realized object
+            Realized object  # (instantiated object)
         """
         type_path = config_data["TYPE"]
 
+        # Import the target class or function
         try:
             obj = import_object(type_path)
         except Exception as e:
@@ -192,18 +219,19 @@ class SymConfConfig:
 
         # Handle different object types
         if "." in type_path and "CLASS" in config_data:
-            # Instance method
+            # Instance method case - create instance first, then call method
             class_path = ".".join(type_path.split(".")[:-1])
             method_name = type_path.split(".")[-1]
 
+            # Create the class instance
             class_obj = import_object(class_path)
             instance = class_obj(**config_data["CLASS"])
             method = getattr(instance, method_name)
 
-            # Get method kwargs
+            # Get method kwargs (excluding special keys)
             kwargs = {k: v for k, v in config_data.items() if k not in ["TYPE", "CLASS"]}
 
-            # Realize nested objects in kwargs
+            # Realize nested objects in kwargs (depth-first)
             for key, value in kwargs.items():
                 if isinstance(value, dict) and "TYPE" in value:
                     kwargs[key] = self._realize_single_object(value)
@@ -224,15 +252,20 @@ class SymConfConfig:
         """Convert to plain dictionary.
 
         Returns:
-            Plain dictionary representation
+            Plain dictionary representation  # (nested dict without SymConfConfig wrappers)
         """
-        result = {}
+        result = {}  # Dict[str, Any] (plain dictionary)
+
+        # Convert all values recursively
         for key, value in self.__dict__.items():
             if isinstance(value, SymConfConfig):
+                # Recursively convert nested SymConfConfig
                 result[key] = value._to_dict()
             elif isinstance(value, list):
+                # Handle lists with potential SymConfConfig items
                 result[key] = [item._to_dict() if isinstance(item, SymConfConfig) else item for item in value]
             else:
+                # Keep primitive values as-is
                 result[key] = value
         return result
 

@@ -124,25 +124,25 @@ class SymConfParser:
         """Build a single configuration from arguments.
 
         Args:
-            args: Parsed command line arguments
+            args: Parsed command line arguments  # (namespace with config options)
 
         Returns:
-            Built configuration
+            Built configuration  # (validated and processed SymConfConfig)
         """
-
-        # Step 1: Load YAML files
-        config = {}
+        # Step 1: Load YAML files and merge them
+        config = {}  # Dict[str, Any] (merged configuration)
         for config_file in args.config_files:
             with open(config_file, "r") as f:
                 file_config = yaml.unsafe_load(f)
                 assert isinstance(file_config, dict), (
                     f"Config file {config_file} must contain a YAML mapping at the top level."
                 )
+                # Deep merge configurations to handle nested structures
                 config = deep_merge(config, file_config)
 
         # Load environment variables and update global environment
         if args.env:
-            dotenv_vars = load_dotenv(args.env)
+            dotenv_vars = load_dotenv(args.env)  # Dict[str, str] (env variables)
             # Update global environment so InterpolationEngine can access them
             os.environ.update(dotenv_vars)
 
@@ -151,6 +151,7 @@ class SymConfParser:
         for arg in args_list:
             if "=" in arg:
                 key, value = arg.split("=", 1)
+                # Apply override using dot notation
                 self._set_nested_value(config, key, value)
 
         # Step 3: Remove parameters marked as REMOVE
@@ -159,13 +160,13 @@ class SymConfParser:
         # Step 4: Complete default values for objects with TYPE
         config = self._complete_default_values(config)
 
-        # Step 5: Resolve interpolations
+        # Step 5: Resolve interpolations (variable references)
         config = InterpolationEngine(config).resolve_all_interpolations()
 
-        # Step 6: Process LIST types
+        # Step 6: Process LIST types (convert LIST markers to actual lists)
         config = process_list_type(config)
 
-        # Step 7: Validate configuration
+        # Step 7: Validate configuration against object signatures
         if self.validate_type or self.validate_mapping:
             self._validate_configuration(config)
 
@@ -192,15 +193,16 @@ class SymConfParser:
         if isinstance(value, str):
             if value.isdigit():
                 final_value = int(value)
-            elif value.replace(".", "").replace("-", "").isdigit():
+            else:
+                # Try to parse as float (including scientific notation)
                 try:
                     final_value = float(value)
                 except ValueError:
-                    pass
-            elif value.lower() in ["true", "false"]:
-                final_value = value.lower() == "true"
-            elif value.lower() == "null":
-                final_value = None
+                    # Try boolean conversion
+                    if value.lower() in ["true", "false"]:
+                        final_value = value.lower() == "true"
+                    elif value.lower() == "null":
+                        final_value = None
 
         current[keys[-1]] = final_value
 

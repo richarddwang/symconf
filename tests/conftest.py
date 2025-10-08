@@ -69,7 +69,7 @@ class Child(Parent):
         toy: Optional[Toy] = None,
         stoy: Optional[SuperToy] = None,
         toy_cls: Optional[Type[Toy]] = None,
-        stoy_cls: Optional[Type[SuperToy]] = None,
+        stoy_cls: Type[SuperToy] = SuperToy,
         **kwargs,
     ):
         super().__init__(name=name or "John", **kwargs)

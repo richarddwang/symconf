@@ -374,12 +374,12 @@ Actual: 'pig' (str)
 ❌ Type mismatch
 Parameter: model.stoy
 Expected: SuperToy
-Actual: Toy
+Actual: ... (Toy)
 
 ❌ Type mismatch
 Parameter: model.stoy_cls
 Expected: Type[SuperToy]
-Actual: SuperToy
+Actual: ... (SuperToy)
 ```
 
 ### 檢查不預期或缺失的參數
