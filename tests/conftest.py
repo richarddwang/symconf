@@ -235,6 +235,8 @@ def test_classes() -> Dict[str, Type]:
         "Experiment": Experiment,
         "BaseModel": BaseModel,
         "AwesomeModelStep4": AwesomeModelStep4,
+        "ParentForMapping": ParentForMapping,
+        "ChildForMapping": ChildForMapping,
     }
 
 
@@ -334,3 +336,35 @@ class ChildForKwargs(ParentForKwargs):
             **kwargs: Additional arguments passed to parent
         """
         super().__init__(a=3, c=d * 5, **kwargs)
+
+
+# Additional classes for Step 6 parameter mapping validation test
+# Following HOWTO.md structure
+class ParentForMapping:
+    """Test parent class for parameter mapping validation."""
+
+    def __init__(self, c: int, d: float):
+        """Initialize parent for mapping test.
+
+        Args:
+            c: Parameter c
+            d: Parameter d
+        """
+        self.c = c
+        self.d = d
+
+
+class ChildForMapping(ParentForMapping):
+    """Test child class for parameter mapping validation."""
+
+    def __init__(self, a: int, b: int = 3, **kwargs):
+        """Initialize child for mapping test.
+
+        Args:
+            a: Parameter a (required)
+            b: Parameter b (optional, default=3)
+            **kwargs: Additional arguments passed to parent
+        """
+        super().__init__(c=a + b, **kwargs)
+        self.a = a
+        self.b = b
