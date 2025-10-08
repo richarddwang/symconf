@@ -1,178 +1,14 @@
 """Parameter chain tracing module for **kwargs analysis."""
 
 import ast
+import importlib
 import inspect
 import textwrap
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from collections import defaultdict
+from typing import Any, Callable, Dict, Optional, Type
 
 from .exceptions import CircularKwargsChainError
-
-OBJECT_TYPE = Callable | Type[Any]
-
-
-class KwargsTargetResolver(ast.NodeVisitor):
-    """AST visitor to find **kwargs calls and resolve their targets directly."""
-
-    def __init__(self, obj: OBJECT_TYPE):
-        """Initialize the kwargs target resolver.
-
-        Args:
-            obj: The object to analyze (function, method, or class)
-        """
-        self.resolved_targets: List[Dict[str, Any]] = []  # resolved target and hardcoded args
-        self.obj = obj
-        self.context_class = self._infer_context_class(obj)
-    
-    # TODO: auto visit tree
-
-    def _infer_context_class(self, obj: OBJECT_TYPE) -> Optional[Type[Any]]:
-        """Infer the context class from the given object.
-
-        Args:
-            obj: Object to infer context class from
-
-        Returns:
-            Inferred context class or None
-        """
-        if inspect.isclass(obj):
-            return obj
-        elif inspect.ismethod(obj) or inspect.isfunction(obj):
-            # Try to get the class that defines this method
-            if hasattr(obj, "__qualname__") and "." in obj.__qualname__:
-                class_name = obj.__qualname__.rsplit(".", 1)[0]
-                module = inspect.getmodule(obj)
-                if module and hasattr(module, class_name):
-                    return getattr(module, class_name)
-        return None
-
-    def visit_Call(self, node: ast.Call) -> None:
-        """Visit call nodes to find **kwargs calls and resolve their targets.
-
-        Args:
-            node: AST call node to analyze
-        """
-        # Check for **kwargs in the call
-        has_kwargs = any(
-            keyword.arg is None  # **kwargs
-            for keyword in node.keywords
-        )
-
-        if has_kwargs:
-            # Collect hardcoded arguments for all **kwargs calls
-            hardcoded_args = set()  # Set[str] (names of hardcoded arguments)
-            for keyword in node.keywords:
-                if hasattr(keyword, "arg") and keyword.arg is not None:
-                    # This is a hardcoded argument (not **kwargs)
-                    hardcoded_args.add(keyword.arg)
-
-            # Try to identify and resolve the target of the call
-            resolved_target = None
-            if isinstance(node.func, ast.Name):
-                # Direct function call: func(**kwargs)
-                resolved_target = self._resolve_function_call(node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                # Method call: obj.method(**kwargs) or super().method_name(**kwargs)
-                if isinstance(node.func.value, ast.Call) and isinstance(node.func.value.func, ast.Name):
-                    if node.func.value.func.id == "super":
-                        # super(...).method_name(**kwargs) call
-                        resolved_target = self._resolve_super_method_call(node.func.value, node.func.attr)
-                else:
-                    # Regular method call - for now, we'll skip these as they're harder to resolve statically
-                    pass
-
-            # Store resolved target if found
-            if resolved_target is not None:
-                self.resolved_targets.append({"target": resolved_target, "hardcoded_args": hardcoded_args})
-
-        self.generic_visit(node)
-
-    def _resolve_function_call(self, function_name: str) -> Optional[OBJECT_TYPE]:
-        """Resolve a function call to an actual callable object.
-
-        Args:
-            function_name: Name of the function to resolve
-
-        Returns:
-            Resolved function object or None if resolution fails
-        """
-        if not self.obj:
-            return None
-
-        # Try to find the function in the same module as the context object
-        if hasattr(self.obj, "__module__"):
-            module = inspect.getmodule(self.obj)
-            if module and hasattr(module, function_name):
-                return getattr(module, function_name)
-
-        # Try to import the function if it's a fully qualified name
-        try:
-            from .utils import import_object
-
-            return import_object(function_name)
-        except Exception:
-            return None
-
-    def _resolve_super_method_call(self, super_node: ast.Call, method_name: str) -> Optional[OBJECT_TYPE]:
-        """Resolve a super() method call to an actual callable object.
-
-        Args:
-            super_node: AST node representing the super() call
-            method_name: Name of the method being called on super()
-
-        Returns:
-            Resolved method object or None if resolution fails
-        """
-        try:
-            # Handle different super() call patterns
-            if len(super_node.args) == 0:
-                # super() - use current class context
-                target_class = self.context_class
-            elif len(super_node.args) == 2:
-                # super(ClassName, self) - extract the class name
-                if isinstance(super_node.args[0], ast.Name):
-                    class_name = super_node.args[0].id
-                    # Find the class in the MRO of context_class
-                    target_class = self._find_class_in_mro(class_name)
-                else:
-                    return None
-            else:
-                # Unsupported super() call pattern
-                return None
-
-            if not target_class:
-                return None
-
-            # Find the parent class method in MRO
-            for base in target_class.__mro__[1:]:  # Skip the target class itself
-                if base is object:
-                    continue
-                if hasattr(base, method_name):
-                    method = getattr(base, method_name)
-                    # For __init__, check it's not the default object.__init__
-                    if method_name == "__init__" and method is object.__init__:
-                        continue
-                    # Return the method itself
-                    return method
-
-            return None
-        except Exception:
-            return None
-
-    def _find_class_in_mro(self, class_name: str) -> Type[Any]:
-        """Find a class by name in the MRO of the context class.
-
-        Args:
-            class_name: Name of the class to find
-
-        Returns:
-            Found class or None
-        """
-        # Check if the class name matches any class in the MRO
-        for cls in self.context_class.__mro__:
-            if cls.__name__ == class_name:
-                return cls
-
-        raise ValueError(f"Class '{class_name}' not found in MRO of {self.context_class}")
+from .utils import OBJECT_TYPE, import_object
 
 
 class ParameterChainTracer:
@@ -279,86 +115,24 @@ class ParameterChainTracer:
         signature = self._get_object_signature(obj)
         chain[obj_name] = signature
 
-        # Find **kwargs calls in the object's implementation
-        kwargs_targets = self._find_kwargs_targets(obj)
+        # Find callees called with **kwargs in the object's implementation
+        callee_to_hardcodeds = KwargsTargetResolver().get_kwargs_targets(obj)
 
         # Process each resolved kwargs target
-        for target_info in kwargs_targets:
-            # Target is already resolved
-            target_obj = target_info["target"]
-            if target_obj:
-                # Trace the target callable
-                target_chain = self._trace_recursive(target_obj)
+        for callee, hardcoded_args in callee_to_hardcodeds.items():
+            # Trace the target callable
+            target_chain = self._trace_recursive(callee)
 
-                # Filter out hardcoded parameters from the traced chain
-                if "hardcoded_args" in target_info and target_info["hardcoded_args"]:
-                    target_chain = self._filter_hardcoded_params(target_chain, target_info["hardcoded_args"])
+            # Filter out hardcoded parameters from the traced chain
+            callee_name = next(iter(target_chain.keys()))
+            for hardcoded_arg in hardcoded_args:
+                target_chain[callee_name].pop(hardcoded_arg, None)
 
-                chain.update(target_chain)
+            chain.update(target_chain)
 
         # Cleanup: remove from tracking
         self._current_chain.pop()
         return chain
-
-    def _find_kwargs_targets(self, obj: OBJECT_TYPE) -> List[Dict[str, Any]]:
-        """Find and resolve **kwargs call targets in the object's source code.
-
-        Args:
-            obj: Object to analyze
-
-        Returns:
-            List of resolved kwargs target information  # (list of resolved target metadata dicts)
-        """
-        # Determine the function to analyze
-        if inspect.isclass(obj):
-            func = obj.__init__
-        elif inspect.ismethod(obj) or inspect.isfunction(obj):
-            func = obj
-        else:
-            return []
-
-        # Try to parse the source code
-        try:
-            source = inspect.getsource(func)
-        except (TypeError, OSError):
-            # Cannot get source code for built-in functions or compiled code
-            return []
-
-        # Remove common leading whitespace to fix indentation
-        source = textwrap.dedent(source)
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            # Cannot parse source code
-            return []
-
-        # Find and resolve kwargs calls using AST visitor
-        resolver = KwargsTargetResolver(obj)
-        resolver.visit(tree)
-        return resolver.resolved_targets
-
-    def _filter_hardcoded_params(
-        self, param_chain: Dict[str, Dict[str, Dict[str, Any]]], hardcoded_args: Set[str]
-    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        """Filter out hardcoded parameters from a parameter chain.
-
-        Args:
-            param_chain: Parameter chain to filter
-            hardcoded_args: Set of hardcoded argument names to filter out
-
-        Returns:
-            Filtered parameter chain  # (nested dict with hardcoded params removed)
-        """
-        filtered_chain = {}  # Dict[str, Dict[str, Dict[str, Any]]] (object name -> filtered signatures)
-
-        for obj_name, signature in param_chain.items():
-            filtered_sig = {}  # Dict[str, Dict[str, Any]] (parameter name -> parameter info)
-            for param_name, param_info in signature.items():
-                if param_name not in hardcoded_args:
-                    filtered_sig[param_name] = param_info
-            filtered_chain[obj_name] = filtered_sig
-
-        return filtered_chain
 
     def _get_object_signature(self, obj: OBJECT_TYPE) -> Dict[str, Dict[str, Any]]:
         """Get object signature.
@@ -496,3 +270,218 @@ class ParameterChainTracer:
             return None
         except Exception:
             return None
+
+
+class KwargsTargetResolver(ast.NodeVisitor):
+    """AST visitor to find **kwargs calls and resolve their targets directly."""
+
+    def get_kwargs_targets(self, obj: OBJECT_TYPE) -> dict[Callable, set[str]]:
+        """Get the resolved method/functions the **kwargs passed to, and hardcoded arguments in the method/functions call.
+
+        Returns:
+            dict mapping resolved callee function that kwargs passed to, to hardcoded arguments during the call
+        """
+        # Set source
+        self.source_obj = obj
+        self.source_class = self._infer_source_class()
+
+        # Parse the source code to find **kwargs calls
+        self.callee_to_hardcodeds: dict[Callable, set[str]] = defaultdict(set)
+        self._parse_source_function(obj)
+
+        return self.callee_to_hardcodeds
+
+    def _infer_source_class(self) -> Optional[Type[Any]]:
+        """Infer the context class from the given object.
+
+        Returns:
+            Inferred context class or None
+        """
+        if inspect.isclass(self.source_obj):
+            return self.source_obj
+        elif inspect.ismethod(self.source_obj) or inspect.isfunction(self.source_obj):
+            # Try to get the class that defines this method
+            if hasattr(self.source_obj, "__qualname__") and "." in self.source_obj.__qualname__:
+                class_name = self.source_obj.__qualname__.rsplit(".", 1)[0]
+                module = inspect.getmodule(self.source_obj)
+                if module and hasattr(module, class_name):
+                    return getattr(module, class_name)
+        return None
+
+    def _parse_source_function(self, obj: OBJECT_TYPE) -> None:
+        """Parse the source function for **kwargs calls.
+
+        Args:
+            obj (OBJECT_TYPE): Object to parse
+        """
+        # Determine the function to analyze
+        if inspect.isclass(obj):
+            func = obj.__init__
+        elif inspect.ismethod(obj) or inspect.isfunction(obj):
+            func = obj
+        else:
+            return
+
+        # Try to get the source code
+        try:
+            source = inspect.getsource(func)
+        except (TypeError, OSError):
+            # Cannot get source code for built-in functions or compiled code
+            return
+
+        # Remove common leading whitespace to fix indentation
+        source = textwrap.dedent(source)
+
+        # Try to parse the source code
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            # Cannot parse source code
+            return
+
+        # Find and resolve kwargs calls using AST visitor
+        self.visit(tree)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        """Visit call nodes to find **kwargs calls and resolve their targets.
+
+        Args:
+            node: AST call node to analyze
+        """
+        # Check for **kwargs in the call
+        has_kwargs = any(
+            keyword.arg is None  # **kwargs
+            for keyword in node.keywords
+        )
+
+        if has_kwargs:  # there is a **kwargs in the function call
+            # Collect hardcoded arguments for all **kwargs calls
+            hardcoded_args = set()  # Set[str] (names of hardcoded arguments)
+            for keyword in node.keywords:
+                if hasattr(keyword, "arg") and keyword.arg is not None:
+                    # This is a hardcoded argument (not **kwargs)
+                    hardcoded_args.add(keyword.arg)
+
+            # Try to identify and resolve the target of the call
+            if isinstance(node.func, ast.Name):
+                # Direct function call: func(**kwargs)
+                resolved_callee = self._resolve_function_call(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                # Method call: obj.method(**kwargs) or super().method_name(**kwargs)
+                if isinstance(node.func.value, ast.Call) and isinstance(node.func.value.func, ast.Name):
+                    if node.func.value.func.id == "super":
+                        # super(...).method_name(**kwargs) call
+                        resolved_callee = self._resolve_super_method_call(node.func.value, node.func.attr)
+                else:
+                    # Regular method call: obj.method(**kwargs) or self.method(**kwargs)
+                    resolved_callee = self._resolve_regular_method_call(node.func)
+
+            # Store resolved callee with its hardcoded arguments.
+            # Note: If the same callee is encountered again, merge the hardcoded arguments.
+            self.callee_to_hardcodeds[resolved_callee] |= hardcoded_args
+
+        self.generic_visit(node)
+
+    def _resolve_function_call(self, function_name: str) -> OBJECT_TYPE:
+        """Resolve a function call to an actual callable object.
+
+        Args:
+            function_name: Name of the function to resolve
+
+        Returns:
+            Resolved function object
+        """
+        if "." in function_name:
+            # Try to import the function if it's a fully qualified name
+            return import_object(function_name)
+        else:
+            # No matter the called function is local or imported in the module, they can be found at the module.
+            module = importlib.import_module(self.source_class.__module__)
+            return getattr(module, function_name)
+
+    def _resolve_super_method_call(self, super_node: ast.Call, method_name: str) -> OBJECT_TYPE:
+        """Resolve a super() method call to an actual callable object.
+
+        Args:
+            super_node: AST node representing the super() call
+            method_name: Name of the method being called on super()
+
+        Returns:
+            Resolved method object or None if resolution fails
+        """
+        # Handle different super() call patterns
+        if len(super_node.args) == 0:
+            # super() - use current class context
+            target_class = self.source_class
+        elif len(super_node.args) == 2 and isinstance(super_node.args[0], ast.Name):
+            # super(ClassName, self) - extract the class name
+            class_name = super_node.args[0].id
+            # Find the class in the MRO of source class
+            target_class = None
+            for cls in self.source_class.__mro__:
+                if cls.__name__ == class_name:
+                    target_class = cls
+                    break
+            if not target_class:
+                raise RuntimeError(f"Class '{class_name}' not found in MRO of {self.source_class}")
+        else:
+            # Unsupported super() call pattern
+            raise RuntimeError(
+                "Unsupported super() call pattern: only super() or super(ClassName, self) are supported. But got: "
+                + ast.dump(super_node)
+            )
+
+        # Find the parent class method in MRO
+        for base in target_class.__mro__[1:]:  # Skip the target class itself
+            if hasattr(base, method_name):
+                method = getattr(base, method_name)
+                # Return the method itself
+                return method
+
+        raise RuntimeError(f"Method '{method_name}' not found in MRO of {target_class}")
+
+    def _resolve_regular_method_call(self, func_node: ast.Attribute) -> Optional[OBJECT_TYPE]:
+        """Resolve a regular method call to an actual callable object.
+
+        Args:
+            func_node: AST Attribute node representing the method call (e.g., self.method_name)
+
+        Returns:
+            Resolved method object or None if resolution fails
+        """
+        method_name = func_node.attr
+
+        # Handle different types of method calls
+        if isinstance(func_node.value, ast.Name):
+            # Check for self or cls references
+            if func_node.value.id in ("self", "cls"):
+                # Method call on self or cls
+                if self.source_class:
+                    if hasattr(self.source_class, method_name):
+                        return getattr(self.source_class, method_name)
+            else:
+                # Method call on a variable (harder to resolve statically)
+                # For now, we'll return None as we can't easily determine the type
+                return None
+        elif isinstance(func_node.value, ast.Attribute):
+            # Nested attribute access (e.g., self.obj.method)
+            # This is complex to resolve statically, return None for now
+            return None
+
+        return None
+
+    def _find_class_in_mro(self, class_name: str) -> Type[Any]:
+        """Find a class by name in the MRO of the context class.
+
+        Args:
+            class_name: Name of the class to find
+
+        Returns:
+            Found class or None
+        """
+        # Check if the class name matches any class in the MRO
+        for cls in self.source_class.__mro__:
+            if cls.__name__ == class_name:
+                return cls
+
+        raise ValueError(f"Class '{class_name}' not found in MRO of {self.source_class}")

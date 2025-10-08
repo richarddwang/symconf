@@ -5,6 +5,8 @@ import os
 from copy import deepcopy
 from typing import Any, Callable, Dict, Type
 
+OBJECT_TYPE = Callable | Type[Any]
+
 
 def deep_merge(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
     """Deep merge two dictionaries, with update taking precedence.
@@ -29,7 +31,7 @@ def deep_merge(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def import_object(path: str) -> Any:
+def import_object(path: str) -> OBJECT_TYPE:
     """Import an object by its module path.
 
     Args:
