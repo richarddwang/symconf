@@ -1,127 +1,290 @@
-"""Conftest file for SymConf tests."""
+"""Pytest configuration and shared fixtures for SymConf tests."""
+
+import os
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, Iterator, Literal, Optional, Type, Union
 
 import pytest
-import tempfile
-import os
-from pathlib import Path
+import yaml
+
+from symconf import SymConfParser
 
 
 @pytest.fixture
-def temp_config_dir():
-    """Create temporary directory for test configuration files."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
+def temp_dir() -> Iterator[Path]:
+    """Create a temporary directory for test files."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        yield Path(tmp_dir)
 
 
 @pytest.fixture
-def sample_config_files(temp_config_dir):
-    """Create sample configuration files for testing."""
-    config1 = temp_config_dir / "config1.yaml"
-    config1.write_text("""
-server: 
-  host: localhost
-  ports: 
-    - 8080
-    - 8081
-""")
-
-    config2 = temp_config_dir / "config2.yaml"
-    config2.write_text("""
-server:
-  timeout: 10
-  ports:
-    - 9090
-""")
-
-    return {"config1": config1, "config2": config2}
+def parser() -> SymConfParser:
+    """Create a basic SymConfParser instance."""
+    return SymConfParser()
 
 
 @pytest.fixture
-def sample_env_file(temp_config_dir):
-    """Create sample environment file for testing."""
-    env_file = temp_config_dir / "test.env"
-    env_file.write_text("""
-BASE_FEATURE_SIZE=10
-FEATURE_SIZE=64
-""")
-    return env_file
+def parser_with_validation() -> SymConfParser:
+    """Create a SymConfParser with validation enabled."""
+    return SymConfParser(validate_type=True, validate_mapping=True)
 
 
 @pytest.fixture
-def interpolation_config(temp_config_dir):
-    """Create configuration file with interpolation examples."""
-    config = temp_config_dir / "interpolation.yaml"
-    config.write_text("""
-dataset:
-  name: cifar10
-  num_classes: ${BASE_FEATURE_SIZE}
+def parser_without_validation() -> SymConfParser:
+    """Create a SymConfParser with validation disabled."""
+    return SymConfParser(validate_type=False, validate_mapping=False)
 
-model:
-  output_features: ${dataset.num_classes}
-  name: model_${dataset.name}_v2
-  hidden_dim: ${FEATURE_SIZE}
-  dropout: ${0.1 if 10 < 5 else 0.0}
 
-total_params: ${10 + 10}
-""")
-    return config
+# Test classes for validation tests
+class Parent:
+    """Test parent class for validation."""
+
+    def __init__(
+        self,
+        name: str,
+        number: int | float | None = None,
+        vocab: None | list[float] = None,
+        toy: Union[str, None] = None,
+    ):
+        """Initialize parent.
+
+        Args:
+            name: Name parameter
+            number: Number parameter
+            vocab: Vocabulary parameter
+            toy: Toy parameter
+        """
+        self.name = name
+        self.number = number
+        self.vocab = vocab
+        self.toy = toy
+
+
+class Child(Parent):
+    """Test child class for validation."""
+
+    def __init__(
+        self,
+        percent: float,
+        animal: Literal["cat", "dog"] = "dog",
+        dummy=3,
+        name: Optional[str] = None,
+        toy: Optional["Toy"] = None,
+        stoy: Optional["SuperToy"] = None,
+        toy_cls: Optional[Type["Toy"]] = None,
+        stoy_cls: Optional[Type["SuperToy"]] = None,
+        **kwargs,
+    ):
+        """Initialize child.
+
+        Args:
+            percent: Percentage parameter
+            animal: Animal type parameter
+            dummy: Dummy parameter
+            name: Name parameter
+            toy: Toy parameter
+            stoy: Super toy parameter
+            toy_cls: Toy class parameter
+            stoy_cls: Super toy class parameter
+            **kwargs: Additional keyword arguments
+        """
+        super().__init__(name=name or "John", **kwargs)
+        self.percent = percent
+        self.animal = animal
+        self.dummy = dummy
+        self.toy = toy
+        self.stoy = stoy
+        self.toy_cls = toy_cls
+        self.stoy_cls = stoy_cls
+
+
+class Toy:
+    """Test toy class."""
+
+    def __init__(self):
+        """Initialize toy."""
+        pass
+
+
+class SuperToy(Toy):
+    """Test super toy class."""
+
+    def __init__(self):
+        """Initialize super toy."""
+        super().__init__()
+
+
+class AwesomeModel:
+    """Test model class for object realization."""
+
+    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32):
+        """Initialize awesome model.
+
+        Args:
+            learning_rate: Learning rate parameter
+            batch_size: Batch size parameter
+        """
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+
+
+class Optimizer:
+    """Test optimizer class."""
+
+    def __init__(self, lr: float):
+        """Initialize optimizer.
+
+        Args:
+            lr: Learning rate
+        """
+        self.lr = lr
+
+
+class AwesomeModelWithOptimizer:
+    """Test model class with optimizer dependency."""
+
+    def __init__(self, hidden_size: int, optimizer: Optimizer):
+        """Initialize model with optimizer.
+
+        Args:
+            hidden_size: Hidden layer size
+            optimizer: Optimizer instance
+        """
+        self.hidden_size = hidden_size
+        self.optimizer = optimizer
+
+
+def create_optimizer(lr: float) -> Optimizer:
+    """Create optimizer instance.
+
+    Args:
+        lr: Learning rate
+
+    Returns:
+        Optimizer instance
+    """
+    return Optimizer(lr)
+
+
+def func(act: str, message: str = "hello"):
+    """Test function for Step 4 default completion example.
+
+    Args:
+        act: Activation function name
+        message: Message parameter with default
+    """
+    pass
+
+
+class BaseModel:
+    """Test base model class for Step 4 default completion example."""
+
+    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32, **kwargs):
+        """Initialize base model.
+
+        Args:
+            learning_rate: Learning rate parameter
+            batch_size: Batch size parameter
+            **kwargs: Additional keyword arguments passed to func
+        """
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        func(**kwargs)
+
+
+class AwesomeModelStep4(BaseModel):
+    """Test awesome model class for Step 4 default completion example."""
+
+    def __init__(self, loss_scale: float = 1.0, **kwargs):
+        """Initialize awesome model.
+
+        Args:
+            loss_scale: Loss scale parameter
+            **kwargs: Additional keyword arguments passed to parent
+        """
+        self.loss_scale = loss_scale
+        super().__init__(batch_size=16, **kwargs)
+
+
+def square(value: float) -> float:
+    """Square a value.
+
+    Args:
+        value: Input value
+
+    Returns:
+        Squared value
+    """
+    return value * value
+
+
+class Experiment:
+    """Test experiment class for instance method testing."""
+
+    def __init__(self, seed: int):
+        """Initialize experiment.
+
+        Args:
+            seed: Random seed
+        """
+        self.seed = seed
+
+    def cross_validate(self, folds: int) -> Dict[str, float]:
+        """Perform cross validation.
+
+        Args:
+            folds: Number of folds
+
+        Returns:
+            Validation metrics
+        """
+        return {"F1": 0.9, "Precision": 0.95}
 
 
 @pytest.fixture
-def object_config(temp_config_dir):
-    """Create configuration file with object definitions."""
-    config = temp_config_dir / "objects.yaml"
-    config.write_text("""
-model:
-  TYPE: tests.test_objects.AwesomeModel
-  learning_rate: 1e-3
-  hidden_size: 64
-  optimizer:
-    TYPE: tests.test_objects.create_optimizer
-    lr: 0.01
-
-experiment:
-  TYPE: tests.test_objects.Experiment.cross_validate
-  folds: 5
-  CLASS:
-    seed: 1
-""")
-    return config
+def test_classes() -> Dict[str, Type]:
+    """Provide test classes for validation tests."""
+    return {
+        "Parent": Parent,
+        "Child": Child,
+        "Toy": Toy,
+        "SuperToy": SuperToy,
+        "AwesomeModel": AwesomeModel,
+        "Optimizer": Optimizer,
+        "AwesomeModelWithOptimizer": AwesomeModelWithOptimizer,
+        "Experiment": Experiment,
+        "BaseModel": BaseModel,
+        "AwesomeModelStep4": AwesomeModelStep4,
+    }
 
 
-@pytest.fixture
-def list_config(temp_config_dir):
-    """Create configuration files for LIST type testing."""
-    default_config = temp_config_dir / "default_callbacks.yaml"
-    default_config.write_text("""
-callbacks:
-  TYPE: LIST
-  log: log_callback
-  ckpt: save_model_callback
-  debug: debug_callback
-""")
+def write_yaml_file(file_path: Path, data: Dict[str, Any]) -> None:
+    """Write data to YAML file.
 
-    override_config = temp_config_dir / "override_callbacks.yaml"
-    override_config.write_text("""
-callbacks:
-  TYPE: LIST
-  ckpt: REMOVE
-  stop: early_stopping_callback
-""")
-
-    return {"default": default_config, "override": override_config}
+    Args:
+        file_path: Path to write file
+        data: Data to write
+    """
+    with open(file_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False)
 
 
-@pytest.fixture(autouse=True)
-def setup_test_environment():
-    """Set up test environment variables."""
-    original_env = dict(os.environ)
+def set_env_vars(**env_vars: str) -> None:
+    """Set environment variables.
 
-    # Set test environment variables
-    os.environ.update({"BASE_FEATURE_SIZE": "10", "FEATURE_SIZE": "64", "TEST_VAR": "test_value"})
+    Args:
+        **env_vars: Environment variables to set
+    """
+    for key, value in env_vars.items():
+        os.environ[key] = value
 
-    yield
 
-    # Restore original environment
-    os.environ.clear()
-    os.environ.update(original_env)
+def cleanup_env_vars(*var_names: str) -> None:
+    """Clean up environment variables.
+
+    Args:
+        *var_names: Variable names to remove
+    """
+    for var_name in var_names:
+        os.environ.pop(var_name, None)

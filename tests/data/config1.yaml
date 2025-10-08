@@ -1,6 +1,0 @@
-# Test configuration for basic functionality
-server: 
-  host: localhost
-  ports: 
-    - 8080
-    - 8081

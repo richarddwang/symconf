@@ -1,0 +1,76 @@
+"""Test cases for SymConf help functionality (獲取幫助).
+
+This module tests the help and configuration viewing functionality following HOWTO.md structure.
+"""
+
+from pathlib import Path
+from textwrap import dedent
+from unittest.mock import patch
+
+import pytest
+
+from symconf import SymConfParser
+
+from conftest import write_yaml_file
+
+
+class TestGettingHelp:
+    """Test getting help functionality (獲取幫助)."""
+
+    def test_print_complete_configuration(self, temp_dir: Path, capsys):
+        """Test viewing complete configuration (檢視完整設置).
+
+        When 使用 `--print` 參數執行程式
+        Then 系統會以 YAML 形式，印出經過所有步驟處理後的最終完整設置內容，並提示按 Enter 鍵確認後才繼續執行程式
+        """
+        # Create a complex configuration
+        config_data = {
+            "server": {"host": "localhost", "port": 8080},
+            "model": {
+                "TYPE": "tests.conftest.AwesomeModel",
+                "learning_rate": 1e-3,
+            },
+            "training": {"epochs": 100},
+        }
+        config_path = temp_dir / "config.yaml"
+        write_yaml_file(config_path, config_data)
+
+        # Mock input to simulate user pressing Enter
+        with patch("builtins.input", return_value=""):
+            parser = SymConfParser(validate_type=False, validate_mapping=False)
+            parser.parse_args([str(config_path), "--print"])
+
+        # Verify print output contains the configuration
+        captured = capsys.readouterr()
+        assert "Final Configuration:" in captured.out
+        assert "server:" in captured.out
+        assert "model:" in captured.out
+        assert "training:" in captured.out
+
+    def test_object_parameter_help_with_kwargs_chain(self, temp_dir: Path, capsys):
+        """Test object parameter help with **kwargs parameter chain.
+
+        Tests the complex **kwargs tracing as shown in HOWTO.md where Child -> Parent -> AClass.create -> func -> BClass.my_method.
+        """
+        parser = SymConfParser()
+
+        with pytest.raises(SystemExit):  # --help.object causes sys.exit(0)
+            parser.parse_args(["--help.object=tests.conftest.Child"])
+
+        captured = capsys.readouterr()
+        output = captured.out
+
+        # Verify the parameter chain is shown
+        message = """
+        tests.conftest.Child:
+            d
+        → tests.conftest.Parent: 
+            b(bool)
+        → tests.conftest.AClass.create:
+            e
+        → tests.conftest.func:
+            f(int, default=5): 狐狸
+        → tests.conftest.BClass.my_method:
+            g(float): 猩猩
+        """
+        assert dedent(message).strip() in output

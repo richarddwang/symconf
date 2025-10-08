@@ -140,7 +140,7 @@ server:
 When 傳入多個檔案解析設置
 
 ```bash
-python main.py configs/default.yaml config.yaml
+python main.py configs/default.yaml config.yaml --args server.port=REMOVE
 ```
 
 Then 得到移除指定參數後的設置
@@ -149,7 +149,7 @@ Then 得到移除指定參數後的設置
 server:
     host: localhost   # 來自 default.yaml
     timeout: 10       # 來自 default.yaml
-    port: 9090        # 來自 default.yaml
+    # port 參數已被移除
     # debug 參數已被移除
 ```
 
@@ -164,9 +164,15 @@ server:
 Given 定義帶有預設參數的物件
 
 ```python
+def func(act: str, message: str = "hello"): ...
+
+class BaseModel:
+    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32, **kwargs): 
+        func(**kwargs)
+
 class AwesomeModel:
-    def __init__(self, learning_rate: float = 1e-4, batch_size: int = 32):
-        ...
+    def __init__(self, loss_scale: float = 1.0, **kwargs):
+        super().__init__(batch_size=16, **kwargs)
 ```
 
 And 準備只設定部分參數的設置
@@ -174,26 +180,23 @@ And 準備只設定部分參數的設置
 ```yaml
 model:
     TYPE: awesome_package.model.AwesomeModel
-    learning_rate: 1e-3    # 使用者明確設定
-    # batch_size 未設定，但有預設值
+    act: relu
+    learning_rate: 1e-4
 ```
 
 When 解析設置
 
-Then 系統自動補全預設值
-
-```python
-{
-    'model': {
-        'TYPE': 'awesome_package.model.AwesomeModel',
-        'learning_rate': 1e-3,    # 使用者設定的值
-        'batch_size': 32          # 自動補全的預設值
-    }
-}
+Then 系統自動補全預設值，得到設置等同於
+```yaml
+model:
+    TYPE: awesome_package.model.AwesomeModel
+    act: relu            # 使用者設定的值
+    learning_rate: 1e-4  # 使用者明確設定的參數不會被覆寫
+    message: "hello"   # 自動補全的預設值
+    # batch_size 非 AwesomeModel 可設定的參數
 ```
 
 - 只有具有 `TYPE` 關鍵字的物件設置才會進行預設值補全
-- 使用者明確設定的參數不會被覆寫
 - 支援 class、function、instance method 和 class method
 
 ## 步驟5：引用變數值（Interpolation）
@@ -215,7 +218,7 @@ model:
     output_features: ${dataset.num_classes}
     
     # 嵌入字串中使用
-    name: model_${dataset.name}_v${multiplier}
+    name: model_${dataset.name}_h=${model.hidden_dim}
     
     # 環境變數插值
     hidden_dim: ${FEATURE_SIZE}
@@ -245,7 +248,7 @@ Then 所有插值被遞迴解析為實際值
     },
     'model': {
         'output_features': 10,           # 參數插值: dataset.num_classes
-        'name': 'model_cifar10_v2',     # 字串嵌入: dataset.name + multiplier
+        'name': 'model_cifar10_h=10',     # 字串嵌入: dataset.name + multiplier
         'hidden_dim': 10,               # 環境變數插值: FEATURE_SIZE  
         'dropout': 0.0,                 # 表達式插值: max(10*2, 2) = 20, 20 < 5 = False
     },
@@ -270,10 +273,10 @@ Then 顯示循環插值錯誤
 ```python
 CircularInterpolationError: 
 
-a: ${b} (config.yaml:1) 
-→ b: ${c} (config.yaml:2) 
-→ c: ${a} (CLI argument) 
-→ a: ${b} (config.yaml:1)
+a: ${b}
+→ b: ${c}
+→ c: ${a}
+→ a: ${b}
 ```
 
 ## 步驟6：驗證設置
@@ -370,13 +373,13 @@ Actual: 'pig' (str)
 
 ❌ Type mismatch
 Parameter: model.stoy
-Expected: `SuperToy`
-Actual: `Toy`
+Expected: SuperToy
+Actual: Toy
 
 ❌ Type mismatch
 Parameter: model.stoy_cls
-Expected: Type[`SuperToy`]
-Actual: `SuperToy`
+Expected: Type[SuperToy]
+Actual: SuperToy
 ```
 
 ### 檢查不預期或缺失的參數
@@ -903,11 +906,11 @@ Then 系統產生所有參數組合並依序執行
 
 等同於下列巢狀迴圈：
 ```python
-for model_batch_size in ['my_${exp.seed}', 'REMOVE', 'hello']: # 前面的參數為外層迴圈
+for log_name in ['my_${exp.seed}', 'REMOVE', 'hello']: # 前面的參數為外層迴圈
     for exp_seed in ['0', '1', '2']:                           # 後面的參數為內層迴圈
         config = parser.parse_args([
             "config.yaml", "--args",
-            f"model.batch_size={model_batch_size}",
+            f"log.name={log_name}",
             f"exp.seed={exp_seed}"
         ])
         experiment = config.exp.realize()
