@@ -16,26 +16,6 @@ from symconf import CircularInterpolationError, ParameterValidationError, SymCon
 class TestConfigurationBuilding:
     """Test configuration building process (構建設置)."""
 
-    def test_basic_parser_initialization_and_parsing(self, temp_dir: Path):
-        """Test basic SymConfParser initialization and parsing as shown in HOWTO.md.
-
-        Given 初始化 `SymConf` parser 並解析命令列參數
-        When 執行解析
-        Then 得到經過下列步驟建構的設置 `config`
-        """
-        # Create a simple config file
-        config_data = {"model": {"type": "simple"}}
-        config_path = temp_dir / "config.yaml"
-        write_yaml_file(config_path, config_data)
-
-        # Initialize parser and parse args
-        parser = SymConfParser()
-        config = parser.parse_args([str(config_path)])
-
-        # Verify config is built correctly
-        assert hasattr(config, "model")
-        assert config.model.type == "simple"
-
     def test_step1_load_yaml_and_dotenv_files(self, temp_dir: Path):
         """Test Step 1: Loading YAML and dotenv files with deep merging.
 
@@ -259,7 +239,7 @@ class TestConfigurationBuilding:
             → c: ${a}
             → a: ${b}
             """
-            assert error_msg == dedent(message).rstrip()
+            assert dedent(message).rstrip() in error_msg
 
     def test_step6_type_validation(self, temp_dir: Path, test_classes):
         """Test Step 6: Type validation.

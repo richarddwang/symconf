@@ -23,9 +23,9 @@ class ParameterChainTracer:
         Returns:
             Dict mapping object names to their parameter signatures  # (nested dict structure)
         """
-        # Initialize tracing state
-        self._current_chain = []
-        return self._trace_recursive(obj)
+        param_chain = {}  # Dict[str, Dict[str, Dict[str, Any]]] (object name -> parameter signatures)
+        self._trace_recursive(obj, param_chain)
+        return param_chain
 
     def get_all_parameters(self, obj: OBJECT_TYPE) -> Dict[str, Dict[str, Any]]:
         """Get all parameters in the parameter chain.
@@ -94,45 +94,52 @@ class ParameterChainTracer:
 
         return "\n".join(lines)
 
-    def _trace_recursive(self, obj: OBJECT_TYPE) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def _trace_recursive(self, obj: OBJECT_TYPE, param_chain: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
         """Recursively trace parameter chain.
 
         Args:
             obj: Object to trace
-
-        Returns:
-            Parameter chain mapping  # (nested dict with object signatures)
+            param_chain: Parameter chain mapping  # (nested dict with object signatures)
         """
-        obj_name = self._get_object_full_name(obj)
-
         # Prevent infinite loops
-        if obj_name in self._current_chain:
-            raise CircularKwargsChainError(self._current_chain, obj_name)
+        obj_name = self._get_object_full_name(obj)
+        if obj_name in param_chain:
+            raise CircularKwargsChainError(param_chain, obj_name)
 
-        self._current_chain.append(obj_name)  # Track chain for cycle detection
-
-        chain = {}  # Dict[str, Dict[str, Dict[str, Any]]] (object name -> parameter signatures)
+        # Identify if the object has **kwargs in its signature and its name
         signature = self._get_object_signature(obj)
-        chain[obj_name] = signature
+        kwargs_name = None
+        for arg_name, arg_info in list(signature.items()):
+            if arg_info["kind"] == inspect.Parameter.VAR_KEYWORD:
+                kwargs_name = arg_name
+
+        if not kwargs_name:
+            # No **kwargs in signature, end recursion
+            param_chain[obj_name] = signature
+            return
 
         # Find callees called with **kwargs in the object's implementation
-        callee_to_hardcodeds = KwargsTargetResolver().get_kwargs_targets(obj)
+        callee_to_hardcodeds = KwargsTargetResolver().get_kwargs_targets(obj, kwargs_name)
+        if len(callee_to_hardcodeds) > 1:
+            raise NotImplementedError(
+                f"{obj_name} passes **{kwargs_name} to multiple callees, which is not supported. Because I havn't come up with a good data structure for param_chain and a good representation for object help."
+            )
+
+        # Add current object to chain
+        if callee_to_hardcodeds:
+            # Remove **kwargs from signature as it's being expanded in callee(s)
+            signature.pop(kwargs_name)
+        param_chain[obj_name] = signature
 
         # Process each resolved kwargs target
         for callee, hardcoded_args in callee_to_hardcodeds.items():
             # Trace the target callable
-            target_chain = self._trace_recursive(callee)
+            self._trace_recursive(callee, param_chain)
 
             # Filter out hardcoded parameters from the traced chain
-            callee_name = next(iter(target_chain.keys()))
+            callee_name = self._get_object_full_name(callee)
             for hardcoded_arg in hardcoded_args:
-                target_chain[callee_name].pop(hardcoded_arg, None)
-
-            chain.update(target_chain)
-
-        # Cleanup: remove from tracking
-        self._current_chain.pop()
-        return chain
+                param_chain[callee_name].pop(hardcoded_arg, None)
 
     def _get_object_signature(self, obj: OBJECT_TYPE) -> Dict[str, Dict[str, Any]]:
         """Get object signature.
@@ -275,7 +282,7 @@ class ParameterChainTracer:
 class KwargsTargetResolver(ast.NodeVisitor):
     """AST visitor to find **kwargs calls and resolve their targets directly."""
 
-    def get_kwargs_targets(self, obj: OBJECT_TYPE) -> dict[Callable, set[str]]:
+    def get_kwargs_targets(self, obj: OBJECT_TYPE, kwargs_name: str) -> dict[Callable, set[str]]:
         """Get the resolved method/functions the **kwargs passed to, and hardcoded arguments in the method/functions call.
 
         Returns:
@@ -284,6 +291,7 @@ class KwargsTargetResolver(ast.NodeVisitor):
         # Set source
         self.source_obj = obj
         self.source_class = self._infer_source_class()
+        self.kwargs_name = kwargs_name
 
         # Parse the source code to find **kwargs calls
         self.callee_to_hardcodeds: dict[Callable, set[str]] = defaultdict(set)
@@ -348,9 +356,11 @@ class KwargsTargetResolver(ast.NodeVisitor):
         Args:
             node: AST call node to analyze
         """
-        # Check for **kwargs in the call
+        # Check for **kwargs in the call - specifically the kwargs variable we're tracking
         has_kwargs = any(
             keyword.arg is None  # **kwargs
+            and isinstance(keyword.value, ast.Name)  # Variable reference
+            and keyword.value.id == self.kwargs_name  # Same name as the tracked kwargs
             for keyword in node.keywords
         )
 
@@ -394,10 +404,16 @@ class KwargsTargetResolver(ast.NodeVisitor):
         if "." in function_name:
             # Try to import the function if it's a fully qualified name
             return import_object(function_name)
-        else:
-            # No matter the called function is local or imported in the module, they can be found at the module.
-            module = importlib.import_module(self.source_class.__module__)
-            return getattr(module, function_name)
+
+        # Since the caller can call the function, the function must be in the module where the caller is defined.
+        possible_callers = [self.source_obj] + list(self.callee_to_hardcodeds.keys())
+        for obj in reversed(possible_callers):
+            # callee_to_hardcodeds should contain the caller object that call this function
+            module = importlib.import_module(obj.__module__)
+            if hasattr(module, function_name):
+                return getattr(module, function_name)
+
+        raise ImportError(f"Can not import '{function_name}'. Please use fully qualified name.")
 
     def _resolve_super_method_call(self, super_node: ast.Call, method_name: str) -> OBJECT_TYPE:
         """Resolve a super() method call to an actual callable object.

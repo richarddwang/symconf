@@ -4,6 +4,8 @@ import os
 import re
 from typing import Any, Dict, Set
 
+from symconf.utils import load_yaml
+
 from .exceptions import CircularInterpolationError
 
 
@@ -59,12 +61,12 @@ class InterpolationEngine:
                     # Recursively process nested structures
                     self._resolve_recursive(item, current_path)
 
-    def _resolve_value(self, value: str, current_path: str = "") -> Any:
+    def _resolve_value(self, value: str, key_path: str) -> Any:
         """Resolve all interpolations in a string value.
 
         Args:
             value: String value containing interpolations  # (string with ${...} patterns)
-            current_path: Current parameter path for cycle detection  # (dot-separated path)
+            key_path: Current parameter path  # (dot-separated path)
 
         Returns:
             Resolved value  # (string, int, float, or other type after resolution)
@@ -73,42 +75,36 @@ class InterpolationEngine:
             CircularInterpolationError: If circular dependency is detected
         """
         # Check for circular dependency
-        if current_path and current_path in self.resolving:
-            cycle = list(self.resolving) + [current_path]
+        if key_path in self.resolving:
+            cycle = list(self.resolving) + [key_path]
             raise CircularInterpolationError(cycle)
+        else:
+            self.resolving.add(key_path)
 
-        # Find all interpolation matches using regex pattern
         pattern = r"\$\{([^}]+)\}"
         matches = re.findall(pattern, value)
 
         # No interpolations found, return as-is
         if not matches:
-            return value
-
-        # Add to resolving set if we have a path (for cycle detection)
-        if current_path:
-            self.resolving.add(current_path)
-
-        try:
             result = value
+
+        # Full string is a single interpolation e.g., model: ${ENV_VAR} or model: "${param.path}"" or model: ${`1 + 2`}
+        elif re.fullmatch(pattern, value):
+            result = self._resolve_match(matches[0])
+
+        # Mixed content with one or more interpolations e.g., model: resnet_${ENV_VAR}_v2 or model: resnet_${param.path}_v2 or model: resnet_${`1 + 2`}_v2
+        else:
             # Resolve each interpolation match
+            result = value
             for match in matches:
-                # Resolve the match
                 replacement = self._resolve_match(match)
                 result = result.replace(f"${{{match}}}", str(replacement))
 
-            # Try to convert to appropriate type if it's a pure substitution
-            if isinstance(result, str):
-                if result.isdigit():
-                    result = int(result)
-                elif self._is_float(result):
-                    result = float(result)
+            # Try to convert to appropriate type
+            result = load_yaml(result)
 
-            return result
-        finally:
-            # Remove from resolving set (cleanup)
-            if current_path:
-                self.resolving.discard(current_path)
+        self.resolving.discard(key_path)
+        return result
 
     def _resolve_match(self, match: str) -> Any:
         """Resolve a single interpolation match.
@@ -117,30 +113,28 @@ class InterpolationEngine:
             match: The interpolation content (without ${})  # (content inside ${...})
 
         Returns:
-            Resolved value  # (environment value, parameter value, or expression result)
+            Resolved value # (environment value, parameter value, or expression result)
 
         Raises:
             ValueError: If environment variable not found or expression evaluation fails
         """
         # Expression interpolation (contains backticks for variable references)
         if "`" in match:
-            return self._resolve_expression(match)
+            value = self._resolve_expression(match)
 
         # Environment variable interpolation (all uppercase convention)
-        if match.isupper():
-            if match in os.environ:
-                env_value = os.environ[match]
-                # Try to convert to number if possible
-                if env_value.isdigit():
-                    return int(env_value)
-                elif self._is_float(env_value):
-                    return float(env_value)
-                return env_value
-            else:
+        elif match.isupper():
+            try:
+                value = os.environ[match]
+            except KeyError:
                 raise ValueError(f"Environment variable '{match}' not found")
+            value = load_yaml(value)
 
         # Parameter interpolation (cross-reference to other config parameters)
-        return self._get_value_of_param(match)
+        else:
+            value = self._get_value_of_param(match)
+
+        return value
 
     def _resolve_expression(self, expr: str) -> Any:
         """Resolve expression interpolation with backtick variables.

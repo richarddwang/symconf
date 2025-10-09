@@ -1,21 +1,23 @@
 """SymConf parser module."""
 
 import argparse
-import os
+import inspect
 import sys
 from copy import copy
 from itertools import product
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
+from dotenv import load_dotenv
 
 from .config import SymConfConfig
 from .exceptions import ParameterValidationError
 from .interpolation import InterpolationEngine
+from .parameter_tracer import ParameterChainTracer
 from .utils import (
     deep_merge,
     import_object,
-    load_dotenv,
+    load_yaml,
     process_list_type,
     remove_parameters,
 )
@@ -91,7 +93,7 @@ class SymConfParser:
         parser.add_argument("config_files", nargs="*", help="YAML configuration files")
 
         # Optional arguments
-        parser.add_argument("--env", help="Dotenv file path")
+        parser.add_argument("--env", action="append", help="Dotenv file path")
         parser.add_argument("--args", nargs="*", help="Parameter overrides (key=value)")
         parser.add_argument("--print", dest="print_config", action="store_true", help="Print final configuration")
         parser.add_argument("--help.object", dest="help_object", help="Show object parameter help")
@@ -133,7 +135,7 @@ class SymConfParser:
         config = {}  # Dict[str, Any] (merged configuration)
         for config_file in args.config_files:
             with open(config_file, "r") as f:
-                file_config = yaml.unsafe_load(f)
+                file_config = load_yaml(f)
                 assert isinstance(file_config, dict), (
                     f"Config file {config_file} must contain a YAML mapping at the top level."
                 )
@@ -141,17 +143,15 @@ class SymConfParser:
                 config = deep_merge(config, file_config)
 
         # Load environment variables and update global environment
-        if args.env:
-            dotenv_vars = load_dotenv(args.env)  # Dict[str, str] (env variables)
-            # Update global environment so InterpolationEngine can access them
-            os.environ.update(dotenv_vars)
+        dotenv_files = args.env or []
+        for dotenv_file in dotenv_files:
+            assert load_dotenv(dotenv_file), f"Failed to load dotenv file: {dotenv_file}"
 
         # Step 2: Apply command line overrides
-        args_list = args.args if args.args is not None else []
-        for arg in args_list:
-            if "=" in arg:
-                key, value = arg.split("=", 1)
-                # Apply override using dot notation
+        if args.args:
+            yaml_content = "\n".join(arg.replace("=", ": ") for arg in args.args)
+            args_config = load_yaml(yaml_content)
+            for key, value in args_config.items():
                 self._set_nested_value(config, key, value)
 
         # Step 3: Remove parameters marked as REMOVE
@@ -188,23 +188,7 @@ class SymConfParser:
                 current[key] = {}
             current = current[key]
 
-        # Try to convert value to appropriate type
-        final_value = value
-        if isinstance(value, str):
-            if value.isdigit():
-                final_value = int(value)
-            else:
-                # Try to parse as float (including scientific notation)
-                try:
-                    final_value = float(value)
-                except ValueError:
-                    # Try boolean conversion
-                    if value.lower() in ["true", "false"]:
-                        final_value = value.lower() == "true"
-                    elif value.lower() == "null":
-                        final_value = None
-
-        current[keys[-1]] = final_value
+        current[keys[-1]] = value
 
     def _complete_default_values(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Complete default values for objects with TYPE.
@@ -223,6 +207,7 @@ class SymConfParser:
         else:
             result = copy(config)
 
+        # Recursively process nested dictionaries
         for key, value in list(result.items()):
             if isinstance(value, dict):
                 result[key] = self._complete_default_values(value)
@@ -240,23 +225,20 @@ class SymConfParser:
         """
         # Skip LIST types as they are special keywords, not importable objects
         if obj_config["TYPE"] == "LIST":
-            return dict(obj_config)
+            return obj_config
 
         obj = import_object(obj_config["TYPE"])
-        validator = ConfigValidator()
 
         # Get the full parameter chain through **kwargs tracing
-        param_chain = validator.get_parameter_chain(obj)
-
-        result = dict(obj_config)
+        param_chain = ParameterChainTracer().trace_parameter_chain(obj)
 
         # Complete defaults from all objects in the chain
+        result = obj_config
         for obj_type, signature in param_chain.items():
             for param_name, param_info in signature.items():
                 if (
                     param_name not in result
-                    and param_info["default"] != validator.EMPTY_PARAM
-                    and param_info["kind"] != validator.VAR_KEYWORD
+                    and param_info["default"] != inspect.Parameter.empty
                 ):
                     result[param_name] = param_info["default"]
 

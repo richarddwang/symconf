@@ -1,11 +1,34 @@
 """Utility functions for SymConf."""
 
 import importlib
-import os
+import re
 from copy import deepcopy
 from typing import Any, Callable, Dict, Type
 
+import yaml
+
 OBJECT_TYPE = Callable | Type[Any]
+
+
+def load_yaml(stream: Any) -> Any:
+    """Load YAML content from a stream.
+
+    Args:
+        stream: Stream to read YAML from  # (file-like object or string)
+    Returns:
+        Parsed YAML content as a dictionary  # (nested dict structure)
+    """
+    # Use UnsafeLoader to allow python-related tags
+    loader = yaml.UnsafeLoader
+
+    # Custom loader to handle scientific notation correctly
+    loader.add_implicit_resolver(
+        tag="tag:yaml.org,2002:float",
+        regexp=re.compile(r"-? [1-9] ( \. [0-9]* [1-9] )? ( e [-+] [1-9] [0-9]* )?", re.X),
+        first=list("-+0123456789."),
+    )
+
+    return yaml.load(stream, Loader=loader)
 
 
 def deep_merge(base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
@@ -95,29 +118,6 @@ def get_method_class(method: Callable) -> Type:
         module = importlib.import_module(method.__module__)
         class_name = method.__qualname__.split(".")[0]
         return getattr(module, class_name)
-
-
-def load_dotenv(file_path: str) -> Dict[str, str]:
-    """Load environment variables from a dotenv file.
-
-    Args:
-        file_path: Path to the dotenv file
-
-    Returns:
-        Dictionary of environment variables
-    """
-    env_vars = {}
-    if not os.path.exists(file_path):
-        return env_vars
-
-    with open(file_path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                env_vars[key.strip()] = value.strip()
-
-    return env_vars
 
 
 def remove_parameters(data: Dict[str, Any]) -> Dict[str, Any]:
