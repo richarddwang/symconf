@@ -6,7 +6,7 @@ This module tests parameter sweeping and traversal functionality following HOWTO
 import sys
 from pathlib import Path
 
-from conftest import write_yaml_file
+from tests.conftest import write_yaml_file
 
 from symconf import SymConfParser
 

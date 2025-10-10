@@ -7,7 +7,7 @@ from pathlib import Path
 
 from symconf import SymConfParser
 
-from conftest import write_yaml_file
+from tests.conftest import write_yaml_file
 
 
 class TestListManipulation:

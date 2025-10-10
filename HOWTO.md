@@ -394,7 +394,7 @@ class Parent:
 class Child(Parent):
     def __init__(self, a: int, b = 3, **kwargs):
         super().__init__(c = a + b, **kwargs)
-def func(x: int, y: str): ...
+def func(x: int): ...
 ```
 
 And 初始化有啟用參數對應性檢查的 `SymConfParser`
@@ -477,12 +477,12 @@ def func(f: int = 5, **kwargs):
 
 class AClass:
     @classmethod  
-    def create(cls, e, **kwargs) -> "AClass":
+    def create(cls, e="hi", **kwargs) -> "AClass":
         func(**kwargs)
         ...
 
 class Parent:
-    def __init__(self, a, b: bool, c, **kwargs):
+    def __init__(self, a, b: Literal["cat", "dog"], c, **kwargs):
         AClass.create(**kwargs)
 
 class Child(Parent):
@@ -502,9 +502,9 @@ Then 系統照著 `**kwargs` 傳遞鏈，印出所有可在查詢物件中設置
 objects.Child:
     d
 → objects.Parent: 
-    b(bool)
+    b(Literal["cat", "dog"])
 → objects.AClass.create:
-    e
+    e(default="hi")
 → objects.func:
     f(int, default=5): 狐狸
 → objects.BClass.my_method:

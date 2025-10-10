@@ -5,7 +5,10 @@ import importlib
 import inspect
 import textwrap
 from collections import defaultdict
+from io import UnsupportedOperation
 from typing import Any, Callable, Dict, Optional, Type
+
+import docstring_parser
 
 from .exceptions import CircularKwargsChainError
 from .utils import OBJECT_TYPE, import_object
@@ -66,27 +69,40 @@ class ParameterChainTracer:
             else:
                 lines.append(f"→ {obj_name}:")
 
+            # Get all parameter docstrings for this object at once (more efficient)
+            current_obj = import_object(obj_name)
+            all_param_docs = self._get_all_parameter_docstrings(current_obj)
+
             # Format parameters for this object
             for param_name, param_info in signature.items():
                 if param_info["kind"] == inspect.Parameter.VAR_KEYWORD:
-                    continue  # Skip **kwargs
+                    lines.append("    **kwargs")
+                    continue
 
                 param_line = f"    {param_name}"
 
-                # Add type annotation
-                if param_info["annotation"] != inspect.Parameter.empty:
-                    type_str = self._format_type_for_display(param_info["annotation"])
-                    param_line += f"({type_str}"
+                # Add type annotation and/or default value
+                has_annotation = param_info["annotation"] != inspect.Parameter.empty
+                has_default = param_info["default"] != inspect.Parameter.empty
 
-                    # Add default value
-                    if param_info["default"] != inspect.Parameter.empty:
+                if has_annotation or has_default:
+                    param_line += "("
+
+                    if has_annotation:
+                        type_str = self._format_type_for_display(param_info["annotation"])
+                        param_line += type_str
+
+                    if has_default:
                         default_str = self._format_default_for_display(param_info["default"])
-                        param_line += f", default={default_str}"
+                        if has_annotation:
+                            param_line += f", default={default_str}"
+                        else:
+                            param_line += f"default={default_str}"
 
                     param_line += ")"
 
-                # Add docstring if available
-                docstring = self._get_parameter_docstring(obj, param_name)
+                # Add docstring if available (from pre-parsed docstrings)
+                docstring = all_param_docs.get(param_name)
                 if docstring:
                     param_line += f": {docstring}"
 
@@ -179,6 +195,26 @@ class ParameterChainTracer:
         Returns:
             Full name including module  # (module.ClassName format)
         """
+        # For classes, return the class name directly, not the __init__ method
+        if inspect.isclass(obj):
+            if hasattr(obj, "__module__") and hasattr(obj, "__qualname__"):
+                return f"{obj.__module__}.{obj.__qualname__}"
+            elif hasattr(obj, "__name__"):
+                return obj.__name__
+            else:
+                return str(obj)
+
+        # For methods, check if it's an __init__ method and return the class name instead
+        if inspect.ismethod(obj) or inspect.isfunction(obj):
+            if hasattr(obj, "__qualname__") and obj.__qualname__.endswith(".__init__"):
+                # This is an __init__ method, get the class name
+                class_qualname = obj.__qualname__.rsplit(".", 1)[0]
+                if hasattr(obj, "__module__"):
+                    return f"{obj.__module__}.{class_qualname}"
+                else:
+                    return class_qualname
+
+        # Default case
         if hasattr(obj, "__module__") and hasattr(obj, "__qualname__"):
             return f"{obj.__module__}.{obj.__qualname__}"
         elif hasattr(obj, "__name__"):
@@ -212,10 +248,17 @@ class ParameterChainTracer:
         """
         if type_annotation in (int, float, str, bool):
             return type_annotation.__name__
+
+        # Check if this is a typing generic (like Literal, Union, etc.) that has parameters
+        type_str = str(type_annotation)
+        type_str = type_str.replace("typing.", "")  # Remove 'typing.' prefix from all occurrences
+        if "[" in type_str or "(" in type_str:
+            # This is a parameterized generic type, use the full string representation
+            return type_str
         elif hasattr(type_annotation, "__name__"):
             return type_annotation.__name__
         else:
-            return str(type_annotation)
+            return type_str
 
     def _format_default_for_display(self, default_value: Any) -> str:
         """Format default value for display.
@@ -227,19 +270,18 @@ class ParameterChainTracer:
             Formatted default string  # (human-readable default value)
         """
         if isinstance(default_value, str):
-            return f"'{default_value}'"
+            return f"'{default_value}'"  # Use single quotes for consistency
         else:
             return str(default_value)
 
-    def _get_parameter_docstring(self, obj: OBJECT_TYPE, param_name: str) -> Optional[str]:
-        """Get docstring for a parameter.
+    def _get_all_parameter_docstrings(self, obj: OBJECT_TYPE) -> Dict[str, str]:
+        """Get all parameter docstrings from an object's docstring in one parse.
 
         Args:
-            obj: Object containing the parameter
-            param_name: Name of the parameter
+            obj: Object containing the parameters
 
         Returns:
-            Parameter docstring if found, None otherwise  # (extracted parameter documentation)
+            Dict mapping parameter names to their docstrings  # (parameter name -> description)
         """
         try:
             # Get the function to inspect
@@ -248,35 +290,30 @@ class ParameterChainTracer:
             elif inspect.ismethod(obj) or inspect.isfunction(obj):
                 func = obj
             else:
-                return None
+                raise UnsupportedOperation("Cannot get docstring for non-function/class objects.")
 
             docstring = inspect.getdoc(func)
             if not docstring:
-                return None
+                return {}
 
-            # Simple docstring parsing for Args section
-            # This is a basic implementation - could be enhanced with proper docstring parsing
-            lines = docstring.split("\n")
-            in_args_section = False
+            # Fix docstring if it starts with Args: directly (missing description)
+            if docstring.strip().startswith("Args:"):
+                docstring = f"Description.\n\n{docstring}"
 
-            # Parse docstring to find parameter descriptions
-            for line in lines:
-                line = line.strip()
-                if line.startswith("Args:"):
-                    in_args_section = True
-                    continue
-                elif line and not line.startswith(" ") and in_args_section:
-                    # End of args section
-                    break
-                elif in_args_section and line.startswith(f"{param_name}"):
-                    # Found parameter documentation
-                    # Extract description after colon
-                    if ":" in line:
-                        return line.split(":", 1)[1].strip()
+            # Parse docstring using docstring_parser
+            parsed = docstring_parser.parse(docstring)
 
-            return None
+            # Extract all parameter descriptions at once
+            param_docs = {}  # Dict[str, str] (parameter name -> description)
+            for param in parsed.params:
+                if param.description:
+                    # Remove trailing punctuation
+                    description = param.description.strip().rstrip("。.")
+                    param_docs[param.arg_name] = description
+
+            return param_docs
         except Exception:
-            return None
+            return {}
 
 
 class KwargsTargetResolver(ast.NodeVisitor):
@@ -292,6 +329,7 @@ class KwargsTargetResolver(ast.NodeVisitor):
         self.source_obj = obj
         self.source_class = self._infer_source_class()
         self.kwargs_name = kwargs_name
+        self.local_assignments = {}  # Dict[str, str] (variable_name -> class_name)
 
         # Parse the source code to find **kwargs calls
         self.callee_to_hardcodeds: dict[Callable, set[str]] = defaultdict(set)
@@ -392,6 +430,25 @@ class KwargsTargetResolver(ast.NodeVisitor):
 
         self.generic_visit(node)
 
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """Visit assignment nodes to track local variable assignments.
+
+        Args:
+            node: AST assignment node to analyze
+        """
+        # Handle simple assignments like: var = ClassName()
+        if (
+            len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+        ):
+            var_name = node.targets[0].id
+            class_name = node.value.func.id
+            self.local_assignments[var_name] = class_name
+
+        self.generic_visit(node)
+
     def _resolve_function_call(self, function_name: str) -> OBJECT_TYPE:
         """Resolve a function call to an actual callable object.
 
@@ -476,8 +533,28 @@ class KwargsTargetResolver(ast.NodeVisitor):
                     if hasattr(self.source_class, method_name):
                         return getattr(self.source_class, method_name)
             else:
-                # Method call on a variable (harder to resolve statically)
-                # For now, we'll return None as we can't easily determine the type
+                # Method call on a variable or class name
+                var_name = func_node.value.id
+
+                # Check if it's a local assignment we tracked (e.g., b.my_method where b = BClass())
+                if var_name in self.local_assignments:
+                    class_name = self.local_assignments[var_name]
+                    # Try to find the class in the same module as the source object
+                    module = inspect.getmodule(self.source_obj)
+                    if module and hasattr(module, class_name):
+                        cls = getattr(module, class_name)
+                        if hasattr(cls, method_name):
+                            return getattr(cls, method_name)
+
+                # Otherwise, try it as a direct class name (e.g., AClass.create)
+                class_name = var_name
+                module = inspect.getmodule(self.source_obj)
+                if module and hasattr(module, class_name):
+                    cls = getattr(module, class_name)
+                    if hasattr(cls, method_name):
+                        return getattr(cls, method_name)
+
+                # If not found in same module, return None
                 return None
         elif isinstance(func_node.value, ast.Attribute):
             # Nested attribute access (e.g., self.obj.method)

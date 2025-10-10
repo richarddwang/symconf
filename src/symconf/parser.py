@@ -236,10 +236,7 @@ class SymConfParser:
         result = obj_config
         for obj_type, signature in param_chain.items():
             for param_name, param_info in signature.items():
-                if (
-                    param_name not in result
-                    and param_info["default"] != inspect.Parameter.empty
-                ):
+                if param_name not in result and param_info["default"] != inspect.Parameter.empty:
                     result[param_name] = param_info["default"]
 
         return result
@@ -358,41 +355,8 @@ class SymConfParser:
             object_path: Path to the object
         """
         obj = import_object(object_path)
-        validator = ConfigValidator()
+        tracer = ParameterChainTracer()
 
-        # Get parameter chain through inheritance and **kwargs
-        param_chain = validator.get_parameter_chain(obj)
-
-        print(f"{object_path}:")
-        for level, (obj_info, params) in enumerate(param_chain.items()):
-            if level == 0:
-                # Main object
-                for param_name, param_info in params.items():
-                    self._print_parameter_info(param_name, param_info)
-            else:
-                # Inherited/kwargs objects
-                print(f"→ {obj_info}:")
-                for param_name, param_info in params.items():
-                    self._print_parameter_info(param_name, param_info, indent="    ")
-
-    def _print_parameter_info(self, name: str, info: Dict[str, Any], indent: str = "    ") -> None:
-        """Print parameter information.
-
-        Args:
-            name: Parameter name
-            info: Parameter information
-            indent: Indentation string
-        """
-        type_str = ""
-        if info.get("annotation") and info["annotation"] != info.get("empty_param"):
-            type_str = f"({info['annotation']})"
-
-        default_str = ""
-        if info.get("default") and info["default"] != info.get("empty_param"):
-            default_str = f", default={info['default']}"
-
-        doc_str = ""
-        if info.get("doc"):
-            doc_str = f": {info['doc']}"
-
-        print(f"{indent}{name}{type_str}{default_str}{doc_str}")
+        # Get formatted help display using the parameter tracer
+        help_output = tracer.format_help_display(obj)
+        print(help_output)

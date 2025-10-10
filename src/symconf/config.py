@@ -1,6 +1,6 @@
 """SymConf configuration object module."""
 
-import copy
+from copy import copy, deepcopy
 from typing import Any, Dict, List, Optional
 
 from .utils import import_object
@@ -96,6 +96,12 @@ class SymConfConfig:
         Returns:
             Realized object or updated configuration  # (instantiated object or config)
         """
+        if overwrites:
+            config = deepcopy(self)  # Ensure original config is not modified
+            for key_path, value in overwrites.items():
+                config._set_nested_value(key_path, value)
+            return config.realize()  # Realize with applied overwrites
+        
         # Handle configurations without TYPE (not object definitions)
         if "TYPE" not in self.__dict__:
             # No TYPE, just return SymConfConfig with realized children
@@ -109,13 +115,8 @@ class SymConfConfig:
                     result[key] = value
             return SymConfConfig(result)
 
-        # Apply overwrites if provided
-        config_data = self._to_dict()
-        if overwrites:
-            config_data = self._apply_overwrites(config_data, overwrites)
-
         # Realize the object with TYPE
-        return self._realize_single_object(config_data)
+        return self._realize_single_object(self)
 
     def pretty(self, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
         """Serialize configuration to flattened format.
@@ -163,33 +164,15 @@ class SymConfConfig:
         _flatten(self._to_dict())
         return result
 
-    def _apply_overwrites(self, data: Dict[str, Any], overwrites: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply overwrites using dot notation.
-
-        Args:
-            data: Original configuration data  # (nested dict with config values)
-            overwrites: Overwrites with dot notation keys  # (key-value overrides)
-
-        Returns:
-            Updated configuration data  # (modified configuration dict)
-        """
-        result = copy.deepcopy(data)
-
-        # Apply each overwrite using dot notation
-        for key_path, value in overwrites.items():
-            self._set_nested_value(result, key_path, value)
-        return result
-
-    def _set_nested_value(self, data: Dict[str, Any], key_path: str, value: Any) -> None:
+    def _set_nested_value(self, key_path: str, value: Any) -> None:
         """Set nested value using dot notation.
 
         Args:
-            data: Dictionary to modify  # (nested dict to update)
             key_path: Dot-separated key path  # (e.g., "parent.child.grandchild")
             value: Value to set  # (value to assign at the path)
         """
         keys = key_path.split(".")  # Split path into individual keys
-        current = data
+        current = self
 
         # Navigate to parent of target key, creating nested dicts as needed
         for key in keys[:-1]:
@@ -200,50 +183,35 @@ class SymConfConfig:
         # Set the final value
         current[keys[-1]] = value
 
-    def _realize_single_object(self, config_data: Dict[str, Any]) -> Any:
+    def _realize_single_object(self, config: "SymConfConfig") -> Any:
         """Realize a single object from configuration.
 
         Args:
-            config_data: Configuration data dictionary  # (config with TYPE key)
+            config: Configuration object with TYPE key
 
         Returns:
             Realized object  # (instantiated object)
         """
-        type_path = config_data["TYPE"]
-
-        # Import the target class or function
-        try:
-            obj = import_object(type_path)
-        except Exception as e:
-            raise ImportError(f"Failed to import {type_path}: {e}")
-
         # Handle different object types
-        if "." in type_path and "CLASS" in config_data:
+        if "CLASS" in config:
             # Instance method case - create instance first, then call method
-            class_path = ".".join(type_path.split(".")[:-1])
-            method_name = type_path.split(".")[-1]
+            assert "." in config["TYPE"], "TYPE must be in '<class>.<method>' format when using CLASS"
+            class_path, method_name = config["TYPE"].rsplit(".", 1)
 
             # Create the class instance
-            class_obj = import_object(class_path)
-            instance = class_obj(**config_data["CLASS"])
-            method = getattr(instance, method_name)
-
-            # Get method kwargs (excluding special keys)
-            kwargs = {k: v for k, v in config_data.items() if k not in ["TYPE", "CLASS"]}
-
-            # Realize nested objects in kwargs (depth-first)
-            for key, value in kwargs.items():
-                if isinstance(value, dict) and "TYPE" in value:
-                    kwargs[key] = self._realize_single_object(value)
-
-            return method(**kwargs)
+            class_config = copy(config['CLASS'])
+            class_config['TYPE'] = class_path
+            instance = class_config.realize()
+            obj = getattr(instance, method_name)
+        else:
+            obj = import_object(config["TYPE"])
 
         # Regular class/function instantiation
-        kwargs = {k: v for k, v in config_data.items() if k not in ["TYPE", "CLASS"]}
+        kwargs = {k: v for k, v in config.items() if k not in ["TYPE", "CLASS"]}
 
         # Realize nested objects in kwargs (depth-first)
         for key, value in kwargs.items():
-            if isinstance(value, dict) and "TYPE" in value:
+            if isinstance(value, dict | SymConfConfig) and "TYPE" in value:
                 kwargs[key] = self._realize_single_object(value)
 
         return obj(**kwargs)

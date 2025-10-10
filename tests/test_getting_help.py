@@ -4,12 +4,13 @@ This module tests the help and configuration viewing functionality following HOW
 """
 
 from pathlib import Path
+from textwrap import dedent
 from unittest.mock import patch
 
 import pytest
-from conftest import write_yaml_file
 
 from symconf import SymConfParser
+from tests.conftest import write_yaml_file
 
 
 class TestGettingHelp:
@@ -25,7 +26,7 @@ class TestGettingHelp:
         config_data = {
             "server": {"host": "localhost", "port": 8080},
             "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
+                "TYPE": "tests.data.realization.AwesomeModel",
                 "learning_rate": 1e-3,
             },
             "training": {"epochs": 100},
@@ -48,16 +49,31 @@ class TestGettingHelp:
     def test_object_parameter_help_with_kwargs_chain(self, temp_dir: Path, capsys):
         """Test object parameter help with **kwargs parameter chain.
 
-        Tests the complex **kwargs tracing as shown in HOWTO.md where Child -> Parent -> AClass.create -> func -> BClass.my_method.
+        Tests **kwargs tracing through inheritance chain as shown in HOWTO.md.
+
+        NOTE: This test uses the existing Child->Parent chain in conftest.py to verify
+        that kwargs parameter tracing works through super() calls. The full HOWTO.md example
+        (Child -> Parent -> AClass.create -> func -> BClass.my_method) would require
+        improved kwargs resolution for class method calls.
         """
         parser = SymConfParser()
 
         with pytest.raises(SystemExit):  # --help.object causes sys.exit(0)
-            parser.parse_args(["--help.object=tests.conftest.Child"])
+            parser.parse_args(["--help.object=tests.data.kwargs_chain.Child"])
 
         captured = capsys.readouterr()
         output = captured.out
 
-        # Verify basic help output is shown (kwargs chain tracing is complex to implement)
-        assert "tests.conftest.Child:" in output
-        assert "percent" in output  # Should show the direct parameters at least
+        message = """
+        tests.data.kwargs_chain.Child:
+            d
+        → tests.data.kwargs_chain.Parent:
+            b(Literal['cat', 'dog'])
+        → tests.data.kwargs_chain.AClass.create:
+            e(default='hi')
+        → tests.data.kwargs_chain.func:
+            f(int, default=5): 狐狸
+        → tests.data.kwargs_chain.BClass.my_method:
+            g(float): 猩猩
+        """
+        assert dedent(message).strip() in output

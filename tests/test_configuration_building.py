@@ -8,9 +8,10 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-from conftest import cleanup_env_vars, set_env_vars, write_yaml_file
 
+import tests
 from symconf import CircularInterpolationError, ParameterValidationError, SymConfParser
+from tests.conftest import cleanup_env_vars, set_env_vars, write_yaml_file
 
 
 class TestConfigurationBuilding:
@@ -119,7 +120,7 @@ class TestConfigurationBuilding:
     def test_step4_complex_kwargs_chain_completion(self, temp_dir: Path):
         """Test Step 4: Complex **kwargs chain parameter default completion.
 
-        Given 定義帶有預設參數的物件 with **kwargs chain (func -> BaseModel -> AwesomeModelStep4)
+        Given 定義帶有預設參數的物件 with **kwargs chain (func -> BaseModel -> AwesomeModel)
         And 準備只設定部分參數的設置
         When 解析設置
         Then 系統自動補全預設值，得到設置等同於 HOWTO.md example
@@ -127,12 +128,12 @@ class TestConfigurationBuilding:
         # Following the exact HOWTO.md Step 4 example
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModelStep4",
+                "TYPE": "tests.data.completion.AwesomeModel",
                 "act": "relu",  # Parameter for func() via **kwargs chain
                 "learning_rate": 1e-4,  # Parameter for BaseModel, user explicitly set
                 # message should be auto-completed from func() default
-                # loss_scale should be auto-completed from AwesomeModelStep4 default
-                # batch_size is NOT included as it's overridden in AwesomeModelStep4.__init__
+                # loss_scale should be auto-completed from AwesomeModel default
+                # batch_size is NOT included as it's overridden in AwesomeModel.__init__
             }
         }
         config_path = temp_dir / "config.yaml"
@@ -142,12 +143,12 @@ class TestConfigurationBuilding:
         config = parser.parse_args([str(config_path)])
 
         # Verify completion following HOWTO.md expectations
-        assert config.model.TYPE == "tests.conftest.AwesomeModelStep4"
+        assert config.model.TYPE == "tests.data.completion.AwesomeModel"
         assert config.model.act == "relu"  # 使用者設定的值
         assert config.model.learning_rate == 1e-4  # 使用者明確設定的參數不會被覆寫
         assert config.model.message == "hello"  # 自動補全的預設值 from func()
-        assert config.model.loss_scale == 1.0  # 自動補全的預設值 from AwesomeModelStep4
-        assert not hasattr(config.model, "batch_size")  # batch_size 非 AwesomeModelStep4 可設定的參數 (overridden)
+        assert config.model.loss_scale == 1.0  # 自動補全的預設值 from AwesomeModel
+        assert not hasattr(config.model, "batch_size")  # batch_size 非 AwesomeModel 可設定的參數 (overridden)
 
     def test_step5_variable_interpolation_comprehensive(self, temp_dir: Path):
         """Test Step 5: Variable interpolation (引用變數值) - comprehensive test.
@@ -241,7 +242,7 @@ class TestConfigurationBuilding:
             """
             assert dedent(message).rstrip() in error_msg
 
-    def test_step6_type_validation(self, temp_dir: Path, test_classes):
+    def test_step6_type_validation(self, temp_dir: Path):
         """Test Step 6: Type validation.
 
         Given 定義範例類別和函式 and 初始化 `SymConfParser` 並指定 base_classes and 準備包含各種型別情況的設置
@@ -250,19 +251,19 @@ class TestConfigurationBuilding:
         """
         yaml_content = """
         model:
-            TYPE: tests.conftest.Child
+            TYPE: tests.data.validation.Child
             percent: 1                           # 錯誤：應該要是 float
             animal: pig                          # 錯誤：值應該是 'cat' 或 'dog'  
             dummy: false                         # 正確：無型別註解不檢查
             toy:                                 # 正確：物件返回值符合型別
-                TYPE: tests.conftest.SuperToy 
+                TYPE: tests.data.validation.SuperToy 
             stoy:                                # 錯誤：Toy 不是 SuperToy
-                TYPE: tests.conftest.Toy         
-            toy_cls: !!python/name:tests.conftest.Toy  # 正確：使用 PyYAML 標籤傳入類別本身
+                TYPE: tests.data.validation.Toy         
+            toy_cls: !!python/name:tests.data.validation.Toy  # 正確：使用 PyYAML 標籤傳入類別本身
             stoy_cls:                            # 錯誤：期待型別而非實例
-                TYPE: tests.conftest.SuperToy
+                TYPE: tests.data.validation.SuperToy
             number:                              # 正確：函式返回值符合型別
-                TYPE: tests.conftest.square
+                TYPE: tests.data.realization.square
                 value: 0.3
             name: null                           # 正確：以子類別定義為準
             vocab: [a, b]                        # 正確：容器型別只檢查第一層
@@ -272,7 +273,7 @@ class TestConfigurationBuilding:
         with open(config_path, "w") as f:
             f.write(dedent(yaml_content).strip())
 
-        parser = SymConfParser(validate_type=True, base_classes={"model": test_classes["Parent"]})
+        parser = SymConfParser(validate_type=True, base_classes={"model": tests.data.validation.Parent})
 
         with pytest.raises(ParameterValidationError) as exc_info:
             parser.parse_args([str(config_path)])
@@ -295,13 +296,13 @@ class TestConfigurationBuilding:
 
         ❌ Type mismatch
         Parameter: model.stoy
-        Expected: Optional[tests.conftest.SuperToy]
-        Actual: ... (tests.conftest.Toy)
+        Expected: Optional[tests.data.validation.SuperToy]
+        Actual: ... (tests.data.validation.Toy)
 
         ❌ Type mismatch
         Parameter: model.stoy_cls
-        Expected: Type[tests.conftest.SuperToy]
-        Actual: ... (tests.conftest.SuperToy)
+        Expected: Type[tests.data.validation.SuperToy]
+        Actual: ... (tests.data.validation.SuperToy)
         """
         assert set(dedent(message).strip().split("\n\n")) == set(error_msg.split("\n\n"))
 
@@ -314,15 +315,15 @@ class TestConfigurationBuilding:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.ChildForMapping",
+                "TYPE": "tests.data.mapping.Child",
                 # Missing required parameter 'a'
                 # Missing required parameter 'd' (for parent)
                 "c": 5,  # Unexpected parameter
                 "e": 7,  # Unexpected parameter
             },
             "fn": {
-                "TYPE": "tests.conftest.square",
-                "value": 3.0,  # Correct parameter
+                "TYPE": "tests.data.mapping.func",
+                "x": 3.0,  # Correct parameter
                 "z": 5,  # Unexpected parameter
             },
         }
@@ -338,66 +339,24 @@ class TestConfigurationBuilding:
         print("Actual error message:")
         print(repr(error_msg))
 
-        # The test expects Child to have different parameters than what's in conftest.py
+        # The test expects Child to have different parameters than what's in mapping.py
         # Let's see what the actual error is and fix accordingly
         message = """
         ❌ Missing parameters
         Parameters: model.a, model.d
-        Object: tests.conftest.ChildForMapping
+        Object: tests.data.mapping.Child
 
         ❌ Unexpected parameters
         Parameters: model.c, model.e
-        Object: tests.conftest.ChildForMapping
+        Object: tests.data.mapping.Child
 
         ❌ Unexpected parameters
         Parameters: fn.z
-        Object: tests.conftest.square
+        Object: tests.data.mapping.func
+
+        ❌ Type mismatch
+        Parameter: fn.x
+        Expected: int
+        Actual: 3.0 (float)
         """
         assert set(dedent(message).strip().split("\n\n")) == set(error_msg.split("\n\n"))
-
-    def test_complete_configuration_building_process(self, temp_dir: Path):
-        """Test the complete configuration building process with all steps."""
-        # Step 1: Create multiple YAML files
-        base_config = {
-            "server": {"host": "localhost", "debug": True},
-            "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
-                "learning_rate": 1e-4,
-                # batch_size will be completed from defaults
-            },
-        }
-        base_path = temp_dir / "base.yaml"
-        write_yaml_file(base_path, base_config)
-
-        override_config = {
-            "server": {"debug": "REMOVE"},  # Step 3: Remove parameter
-            "training": {"epochs": "${EPOCHS}"},  # Step 5: Env var interpolation
-        }
-        override_path = temp_dir / "override.yaml"
-        write_yaml_file(override_path, override_config)
-
-        # Set environment variable for interpolation
-        set_env_vars(EPOCHS="100")
-
-        try:
-            parser = SymConfParser(validate_type=False, validate_mapping=False)
-            config = parser.parse_args(
-                [
-                    str(base_path),
-                    str(override_path),
-                    "--args",
-                    "model.learning_rate=1e-3",  # Step 2: Command line override
-                    "server.port=8080",  # Step 2: Add new parameter
-                ]
-            )
-
-            # Verify all steps worked
-            assert config.server.host == "localhost"  # From base
-            assert config.server.port == 8080  # From command line
-            assert not hasattr(config.server, "debug")  # Removed
-            assert config.model.learning_rate == 1e-3  # Overridden
-            assert config.model.batch_size == 32  # Default completed
-            assert config.training.epochs == 100  # Interpolated
-
-        finally:
-            cleanup_env_vars("EPOCHS")

@@ -127,11 +127,13 @@ class ConfigValidator:
         # Extract parameter information from param_chain
         all_expected_params = set()  # Set[str] (all acceptable parameters)
         required_params = set()  # Set[str] (parameters without defaults)
+        has_kwargs = False
 
         # Collect parameters from all objects in the chain
         for param_name, param_info in params.items():
             # Skip **kwargs parameters
             if param_info["kind"] == inspect.Parameter.VAR_KEYWORD:
+                has_kwargs = True
                 continue
 
             all_expected_params.add(param_name)
@@ -141,19 +143,20 @@ class ConfigValidator:
                 required_params.add(param_name)
 
         # Check for unexpected parameters
-        unexpected = actual_params - all_expected_params  # Set[str] (extra parameters)
-        if unexpected:
-            param_list = []  # List[str] (formatted parameter paths)
-            for param in sorted(unexpected):
-                param_list.append(f"{path}.{param}" if path else param)
+        if not has_kwargs:
+            unexpected = actual_params - all_expected_params  # Set[str] (extra parameters)
+            if unexpected:
+                param_list = []  # List[str] (formatted parameter paths)
+                for param in sorted(unexpected):
+                    param_list.append(f"{path}.{param}" if path else param)
 
-            errors.append(
-                MatchingError(
-                    error_type="Unexpected parameters",
-                    parameters=param_list,
-                    object_name=self._get_object_display_name(obj),
+                errors.append(
+                    MatchingError(
+                        error_type="Unexpected parameters",
+                        parameters=param_list,
+                        object_name=self._get_object_display_name(obj),
+                    )
                 )
-            )
 
         # Check for missing required parameters
         missing = required_params - actual_params  # Set[str] (missing required parameters)

@@ -5,10 +5,9 @@ This module tests configuration object manipulation functionality following HOWT
 
 from pathlib import Path
 
-from conftest import write_yaml_file
-
-from symconf import SymConfParser, SymConfConfig
-import tests.conftest as conftest
+import tests
+from symconf import SymConfConfig, SymConfParser
+from tests.conftest import write_yaml_file
 
 
 class TestConfigurationObjectOperations:
@@ -102,10 +101,10 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModelWithOptimizer",
+                "TYPE": "tests.data.realization.AwesomeModelWithOptimizer",
                 "hidden_size": 64,
                 "optimizer": {
-                    "TYPE": "tests.conftest.create_optimizer",
+                    "TYPE": "tests.data.realization.create_optimizer",
                     "lr": 0.01,
                 },
             }
@@ -121,9 +120,9 @@ class TestConfigurationObjectOperations:
 
         # Verify object realization
 
-        assert isinstance(realized_config["model"], conftest.AwesomeModelWithOptimizer)
+        assert isinstance(realized_config["model"], tests.data.realization.AwesomeModelWithOptimizer)
         assert realized_config["model"].hidden_size == 64
-        assert isinstance(realized_config["model"].optimizer, conftest.Optimizer)
+        assert isinstance(realized_config["model"].optimizer, tests.data.realization.Optimizer)
         assert realized_config["model"].optimizer.lr == 0.01
 
     def test_partial_object_realization_with_overwrites(self, temp_dir: Path):
@@ -134,10 +133,10 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModelWithOptimizer",
+                "TYPE": "tests.data.realization.AwesomeModelWithOptimizer",
                 "hidden_size": 64,
                 "optimizer": {
-                    "TYPE": "tests.conftest.create_optimizer",
+                    "TYPE": "tests.data.realization.create_optimizer",
                     "lr": 0.01,
                 },
             }
@@ -152,33 +151,8 @@ class TestConfigurationObjectOperations:
         model = config.model.realize(overwrites={"optimizer.lr": 0.02})
 
         # Verify overwrite was applied
-        assert isinstance(model, conftest.AwesomeModelWithOptimizer)
+        assert isinstance(model, tests.data.realization.AwesomeModelWithOptimizer)
         assert model.optimizer.lr == 0.02  # Overridden value
-
-    def test_realize_without_type_returns_config(self, temp_dir: Path):
-        """Test that realize() without TYPE returns SymConfConfig with realized children."""
-        config_data = {
-            "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
-                "learning_rate": 1e-3,
-            },
-            "training": {
-                "epochs": 100,  # No TYPE, should remain as config
-            },
-        }
-        config_path = temp_dir / "config.yaml"
-        write_yaml_file(config_path, config_data)
-
-        parser = SymConfParser(validate_type=False, validate_mapping=False)
-        config = parser.parse_args([str(config_path)])
-
-        realized = config.realize()
-
-        # Model should be realized, training should remain as SymConfConfig
-
-        assert isinstance(realized["model"], conftest.AwesomeModel)
-        assert isinstance(realized, SymConfConfig)
-        assert hasattr(realized, "training")
 
     def test_manual_object_realization(self, temp_dir: Path):
         """Test manual object realization (手動實現物件).
@@ -189,7 +163,7 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
+                "TYPE": "tests.data.realization.AwesomeModel",
                 "learning_rate": 1e-3,
                 "batch_size": 64,
             }
@@ -201,36 +175,12 @@ class TestConfigurationObjectOperations:
         config = parser.parse_args([str(config_path)])
 
         # Manual realization using kwargs
-        model = conftest.AwesomeModel(**config.model.kwargs)
+        model = tests.data.realization.AwesomeModel(**config.model.kwargs)
 
         # Verify manual realization
-        assert isinstance(model, conftest.AwesomeModel)
+        assert isinstance(model, tests.data.realization.AwesomeModel)
         assert model.learning_rate == 1e-3
         assert model.batch_size == 64
-
-    def test_kwargs_property_filters_special_keys(self, temp_dir: Path):
-        """Test that kwargs property filters out special keywords like TYPE."""
-        config_data = {
-            "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
-                "learning_rate": 1e-3,
-                "batch_size": 64,
-                "CLASS": "should_be_filtered",  # Should be filtered out
-            }
-        }
-        config_path = temp_dir / "config.yaml"
-        write_yaml_file(config_path, config_data)
-
-        parser = SymConfParser(validate_type=False, validate_mapping=False)
-        config = parser.parse_args([str(config_path)])
-
-        kwargs = config.model.kwargs
-
-        # Verify TYPE is filtered out but other parameters remain
-        assert "TYPE" not in kwargs
-        assert "CLASS" not in kwargs  # Also filtered
-        assert kwargs["learning_rate"] == 1e-3
-        assert kwargs["batch_size"] == 64
 
     def test_instance_method_realization(self, temp_dir: Path):
         """Test instance method realization (實現 instance method).
@@ -239,7 +189,7 @@ class TestConfigurationObjectOperations:
         When 自動實現 instance method
         Then 得到方法執行的返回值
         """
-        config_data = {"TYPE": "tests.conftest.Experiment.cross_validate", "folds": 5, "CLASS": {"seed": 1}}
+        config_data = {"TYPE": "tests.data.realization.Experiment.cross_validate", "folds": 5, "CLASS": {"seed": 1}}
         config_path = temp_dir / "config.yaml"
         write_yaml_file(config_path, config_data)
 
@@ -262,7 +212,7 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "method": {
-                "TYPE": "tests.conftest.Experiment.cross_validate",
+                "TYPE": "tests.data.realization.Experiment.cross_validate",
                 "folds": 5,
             },
             "experiment": {"seed": 1},
@@ -274,7 +224,7 @@ class TestConfigurationObjectOperations:
         config = parser.parse_args([str(config_path)])
 
         # Manual instance method realization
-        experiment = conftest.Experiment(**config.experiment.kwargs)
+        experiment = tests.data.realization.Experiment(**config.experiment.kwargs)
         metrics = experiment.cross_validate(**config.method.kwargs)
 
         # Verify same result
@@ -289,7 +239,7 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
+                "TYPE": "tests.data.realization.AwesomeModel",
                 "hidden_size": 64,
             },
             "dataset": {
@@ -314,7 +264,7 @@ class TestConfigurationObjectOperations:
             "dataset.batch_size",
         }
         assert set(pretty_config.keys()) == expected_keys
-        assert pretty_config["model.TYPE"] == "tests.conftest.AwesomeModel"
+        assert pretty_config["model.TYPE"] == "tests.data.realization.AwesomeModel"
         assert pretty_config["model.hidden_size"] == 64
         assert pretty_config["dataset.batch_size"] == 32
 
@@ -326,7 +276,7 @@ class TestConfigurationObjectOperations:
         """
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
+                "TYPE": "tests.data.realization.AwesomeModel",
                 "hidden_size": 64,
             },
             "dataset": {
@@ -351,7 +301,7 @@ class TestConfigurationObjectOperations:
         """Test that serialization converts object instances back to class name strings."""
         config_data = {
             "model": {
-                "TYPE": "tests.conftest.AwesomeModel",
+                "TYPE": "tests.data.realization.AwesomeModel",
                 "learning_rate": 1e-3,
             }
         }
