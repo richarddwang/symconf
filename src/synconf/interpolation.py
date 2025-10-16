@@ -45,7 +45,7 @@ class InterpolationEngine:
         if isinstance(data, dict):
             for key, value in data.items():
                 new_path = f"{current_path}.{key}" if current_path else key
-                if isinstance(value, str) and "${" in value:
+                if isinstance(value, str) and "((" in value:
                     # Resolve interpolation and update in-place
                     data[key] = self._resolve_value(value, new_path)
                 else:
@@ -54,7 +54,7 @@ class InterpolationEngine:
         # Handle list structures
         elif isinstance(data, list):
             for i, item in enumerate(data):
-                if isinstance(item, str) and "${" in item:
+                if isinstance(item, str) and "((" in item:
                     # Resolve interpolation and update in-place
                     data[i] = self._resolve_value(item, current_path)
                 else:
@@ -65,7 +65,7 @@ class InterpolationEngine:
         """Resolve all interpolations in a string value.
 
         Args:
-            value: String value containing interpolations  # (string with ${...} patterns)
+            value: String value containing interpolations  # (string with ((...)) patterns)
             key_path: Current parameter path  # (dot-separated path)
 
         Returns:
@@ -81,24 +81,24 @@ class InterpolationEngine:
         else:
             self.resolving.add(key_path)
 
-        pattern = r"\$\{([^}]+)\}"
+        pattern = r"\(\((.+?)\)\)(?:[^\)]|$)"
         matches = re.findall(pattern, value)
 
         # No interpolations found, return as-is
         if not matches:
             result = value
 
-        # Full string is a single interpolation e.g., model: ${ENV_VAR} or model: "${param.path}"" or model: ${`1 + 2`}
+        # Full string is a single interpolation e.g., model: ((ENV_VAR)) or model: ((param.path)) or model: ((`1 + 2`))
         elif re.fullmatch(pattern, value):
             result = self._resolve_match(matches[0])
 
-        # Mixed content with one or more interpolations e.g., model: resnet_${ENV_VAR}_v2 or model: resnet_${param.path}_v2 or model: resnet_${`1 + 2`}_v2
+        # Mixed content with one or more interpolations e.g., model: resnet_((ENV_VAR))_v2 or model: resnet_((param.path))_v2 or model: resnet_((`1 + 2`))_v2
         else:
             # Resolve each interpolation match
             result = value
             for match in matches:
                 replacement = self._resolve_match(match)
-                result = result.replace(f"${{{match}}}", str(replacement))
+                result = result.replace(f"(({match}))", str(replacement))
 
             # Try to convert to appropriate type
             result = load_yaml(result)
@@ -202,7 +202,7 @@ class InterpolationEngine:
         raw_value = self._get_raw_value_for_param(key_path)
 
         # If value contains interpolation, resolve it using the unified resolver
-        if isinstance(raw_value, str) and "${" in raw_value:
+        if isinstance(raw_value, str) and "((" in raw_value:
             resolved_value = self._resolve_value(raw_value, key_path)
         else:
             # Value doesn't need interpolation

@@ -1,11 +1,10 @@
 - [構建設置](#構建設置)
-  - [步驟1：讀取 YAML 和 dotenv 檔案](#步驟1讀取-yaml-和-dotenv-檔案)
-  - [步驟2：使用命令列參數](#步驟2使用命令列參數)
-  - [步驟3：移除參數值](#步驟3移除參數值)
-  - [步驟4：依物件參數預設值補全](#步驟4依物件參數預設值補全)
-  - [步驟5：引用變數值（Interpolation）](#步驟5引用變數值interpolation)
+  - [步驟1：依序載入設置和參數覆寫](#步驟1依序載入設置和參數覆寫)
+  - [步驟2：移除參數值](#步驟2移除參數值)
+  - [步驟3：依物件參數預設值補全](#步驟3依物件參數預設值補全)
+  - [步驟4：引用變數值（Interpolation）](#步驟4引用變數值interpolation)
     - [偵測循環依賴](#偵測循環依賴)
-  - [步驟6：驗證設置](#步驟6驗證設置)
+  - [步驟5：驗證設置](#步驟5驗證設置)
     - [驗證型別](#驗證型別)
     - [檢查不預期或缺失的參數](#檢查不預期或缺失的參數)
 - [獲取幫助](#獲取幫助)
@@ -42,81 +41,52 @@ When 執行解析
 
 Then 得到經過下列步驟建構的設置 `config`：
 
-## 步驟1：讀取 YAML 和 dotenv 檔案
+## 步驟1：依序載入設置和參數覆寫
 
-當需要從多個 YAML 檔案載入設置或從環境變數中讀取敏感資訊時，使用此功能。透過 CLI positional arguments 指定 YAML 檔案，並可選擇性地使用 `--env` 參數讀取 dotenv 檔案，系統會自動進行深度合併並以後面的檔案為優先。
+當需要靈活地組合多個來源的設置時，可以在命令列中交替使用 YAML 檔案和參數覆寫。系統會按照出現的順序依序處理，後面的設置會覆寫前面的設置。
 
-Given 準備多個 YAML 檔案
+Given 準備多個 YAML 檔案和參數覆寫
 
 ```yaml
-# config1.yaml
+# base.yaml
 server: 
-    host: localhost
-    ports: 
-        - 8080
-        - 8081
-```
-
-```yaml
-# config2.yaml
-server:
-    timeout: 10
-    ports:
-        - 9090
-```
-
-When 執行命令讀取多個檔案
-
-```bash
-python main.py config1.yaml config2.yaml
-```
-
-Then 得到合併後的設置
-
-```yaml
-server:
-    host: localhost      # 來自 config1.yaml
-    timeout: 10          # 來自 config2.yaml
-    ports:               # list 被後面的檔案整個取代
-        - 9090
-```
-
-- 透過 `--env` 參數可額外讀取 dotenv 檔案來匯入環境變數
-- 多個檔案進行深度合併時，後面的檔案具有較高優先度
-- list 類型的值會被直接取代而非合併或延伸
-
-
-## 步驟2：使用命令列參數
-
-當需要在執行時動態覆寫設置中的特定參數而不修改 YAML 檔案時，使用命令列參數。透過 `--args` 參數，可以使用 `.` 語法指定巢狀參數並用 `=` 設定新值，實現靈活的參數覆寫。
-
-Given 準備基礎 YAML 設置
-
-```yaml
-# config.yaml
+    port: 8080
+    timeout: 30
 exp:
     seed: 42
 ```
 
-When 使用命令列參數覆寫設置
+```yaml
+# override.yaml
+server:
+    timeout: 10
+    debug: true
+```
+
+When 交替使用檔案和參數覆寫
 
 ```bash
-python main.py config.yaml --args exp.seed=3 exp.name=hi
+python main.py base.yaml exp.timeout=100 server.host=localhost override.yaml server.port=9090
 ```
 
-Then 得到覆寫後的設置
+Then 按順序依序應用每個設置，得到最終結果
 
 ```yaml
+server:
+    host: localhost    # 來自命令列參數覆寫
+    port: 9090         # 來自 base.yaml -> 命令列參數覆寫
+    timeout: 10        # 來自 base.yaml -> 命令列參數覆寫 -> override.yaml
+    debug: true        # 來自 override.yaml
 exp:
-    seed: 3     # 覆寫原始值 42
-    name: hi    # 新增參數
+    seed: 100          # 來自 base.yaml
 ```
 
-- 使用 `.` 語法來表示巢狀 key 的路徑
-- 使用 `=` 來指定參數的新值
-- 當指定多個覆寫參數時，後面的參數具有較高優先度
+- 系統自動識別參數類型：帶有 `.yaml`、`.yml` 副檔名為 YAML 檔案，否則須是包含 `=` 的為參數覆寫
+- **處理順序**：命令列中參數出現的順序處理，後面的設置覆蓋前面的設置
+- **YAML 檔案覆寫**：以 YAML 檔案覆寫時會進行深度巢狀覆寫。而 list 類型的值會被直接取代而非合併
+- **命令列參數覆寫**：使用 `.` 語法來表示巢狀 key 的路徑，使用 `=` 來指定參數的值。可以覆寫既有參數或新增新參數
 
-## 步驟3：移除參數值
+## 步驟2：移除參數值
 
 當需要從已合併的設置中移除特定參數時，使用 `REMOVE` 關鍵字。透過將參數值設定為 `REMOVE`，可以明確地從最終設置中刪除該參數，適合用於從預設設置中排除不需要的參數。
 
@@ -142,7 +112,7 @@ server:
 When 傳入多個檔案解析設置
 
 ```bash
-python main.py configs/default.yaml config.yaml --args server.port=REMOVE
+python main.py configs/default.yaml config.yaml server.port=REMOVE
 ```
 
 Then 得到移除指定參數後的設置
@@ -159,7 +129,7 @@ server:
 - 適合搭配多檔案合併來從預設設置中排除不需要的參數
 - 可以與命令列參數搭配使用來動態移除參數
 
-## 步驟4：依物件參數預設值補全
+## 步驟3：依物件參數預設值補全
 
 當需要確保設置記錄的完整性以便日後複現實驗時，系統會自動補全物件參數的預設值。透過檢查 `TYPE` 指定的物件定義，系統會將使用者未明確設定但具有預設值的參數自動加入設置中，避免因日後程式碼變更而影響實驗複現性。
 
@@ -201,35 +171,35 @@ model:
 - 只有具有 `TYPE` 關鍵字的物件設置才會進行預設值補全
 - 支援 class、function、instance method 和 class method
 
-## 步驟5：引用變數值（Interpolation）
+## 步驟4：引用變數值（Interpolation）
 
 當需要在設置中引用其他參數的值或環境變數時，使用插值功能。SynConf 支援三種插值方式，系統會自動識別插值類型並進行相應處理：
-- **參數插值** `${simple_name}`： 若只包含簡單的參數路徑，則代表引用配置中的該路徑的參數值，
-- **環境變數插值** `${UPPER_CASE}`：若包含全大寫參數名，則引用環境變數
-- **表達式插值** `${... `variable` ...}`：若包含以反引號包圍變數，則代表執行 Python 表達式的結果
+- **參數插值** `((simple_name))`： 若只包含簡單的參數路徑，則代表引用配置中的該路徑的參數值，
+- **環境變數插值** `((UPPER_CASE))`：若包含全大寫參數名，則引用環境變數
+- **表達式插值** `((... `variable` ...))`：若包含以反引號包圍變數，則代表執行 Python 表達式的結果
 
 Given 展示三種插值和遞迴引用的綜合範例
 
 ```yaml
 dataset:
     name: cifar10
-    num_classes: ${BASE_FEATURE_SIZE}       # 間接引用環境變數
+    num_classes: ((BASE_FEATURE_SIZE))       # 間接引用環境變數
     
 model:
     # 參數插值（直接引用）
-    output_features: ${dataset.num_classes}
+    output_features: ((dataset.num_classes))
     
     # 嵌入字串中使用
-    name: model_${dataset.name}_h=${model.hidden_dim}
+    name: model_((dataset.name))_h=((model.hidden_dim))
     
     # 環境變數插值
-    hidden_dim: ${FEATURE_SIZE}
+    hidden_dim: ((FEATURE_SIZE))
 
     # 表達式插值
-    dropout: ${0.1 if max(`dataset.num_classes` * 2, 2) < 5 else 0.0}
+    dropout: ((0.1 if max(`dataset.num_classes` * 2, 2) < 5 else 0.0))
     
 # 遞迴引用：引用其他計算結果
-total_params: ${`model.hidden_dim` + `model.output_features`}
+total_params: ((`model.hidden_dim` + `model.output_features`))
 ```
 
 And 設定環境變數
@@ -263,25 +233,26 @@ Then 所有插值被遞迴解析為實際值
 Given 插值形成循環引用
 ```yaml
 # 錯誤範例：循環依賴
-a: ${b}
-b: ${c} 
+a: ((b))
+b: ((c)) 
 c: 3  
 ```
 When 解析時有循環依賴
 ```bash
-python main.py config.yaml --c="${a}" # 形成 a → b → c → a 的循環
+python main.py config.yaml c=((a)) # 形成 a → b → c → a 的循環
 ```
 Then 顯示循環插值錯誤
 ```python
 CircularInterpolationError: 
 
-a: ${b}
-→ b: ${c}
-→ c: ${a}
-→ a: ${b}
+a: ((b))
+→ b: ((c))
+→ c: ((a))
+→ a: ((b))
 ```
 
-## 步驟6：驗證設置
+
+## 步驟5：驗證設置
 
 當需要在執行前確保設置符合物件定義的要求時，使用驗證功能。透過在 `parse_args` 階段就檢查型別和參數是否正確，可以及早發現設置錯誤並避免執行時的問題。
 
@@ -851,7 +822,7 @@ callbacks:
 
 ## 手動遍歷
 
-當需要完全自定義遍歷邏輯，包含複雜的條件判斷時，使用手動方式。透過在使用者程式中迴圈呼叫 `parse_args` 並用 `--args` 覆蓋參數，可以實現任意複雜的遍歷模式。
+當需要完全自定義遍歷邏輯，包含複雜的條件判斷時，使用手動方式。透過使用者在程式中迴圈呼叫 `parse_args` 時加入覆蓋參數，可以實現任意複雜的遍歷模式。
 
 Given 準備包含插值邏輯的設置檔
 
@@ -859,7 +830,7 @@ Given 準備包含插值邏輯的設置檔
 # config.yaml
 dataset: imagenet
 devices: [1, 2]
-batch_size_per_device: ${`batch_size`//len(`devices`)}  # 動態計算
+batch_size_per_device: ((`batch_size`//len(`devices`)))  # 動態計算
 ```
 
 And 在程式中定義遍歷邏輯
@@ -872,7 +843,7 @@ for dataset in ['iris', 'cifar10']:
         if dataset == 'iris' and batch_size == 32:
             continue  # 跳過特定組合
         config = parser.parse_args(
-            sys.argv[1:] + ["--args"] + [f"dataset={dataset}", f"batch_size={batch_size}"]
+            sys.argv[1:] + [f"dataset={dataset}", f"batch_size={batch_size}"]
         )
         # 使用 config 進行實驗...
 ```
@@ -915,7 +886,7 @@ batch_size: 64
 
 ## 簡單遍歷
 
-當需要對單個或多個參數進行笛卡爾積遍歷時，使用簡單遍歷功能。透過 `--sweep.<參數路徑>` 參數，可以直接指定各個參數的候選值，系統會自動產生所有可能的組合。
+當需要對單個或多個參數進行笛卡爾積遍歷時，使用簡單遍歷功能。透過 `--sweep` 參數搭配 `key=<YAML list>` 格式，可以直接指定各個參數的候選值，系統會自動產生所有可能的組合。
 
 Given 準備處理遍歷結果的程式
 
@@ -933,20 +904,20 @@ else:                           # 無 --sweep 時返回單一 config
     experiment.run(**configs.run.kwargs)
 ```
 
-When 使用 `--sweep.<參數路徑>` 指定該參數的候選值
+When 使用 `--sweep` 搭配參數候選值
 
 ```bash
-python sweep.py config.yaml --sweep.log.name "my_${exp.seed}" REMOVE hello --sweep.exp.seed 0 1 2
+python sweep.py config.yaml --sweep log.name=[my_((exp.seed)), REMOVE, hello] exp.seed=[0, 1, 2]
 ```
 
 Then 系統產生所有參數組合並依序執行
 
 等同於下列巢狀迴圈：
 ```python
-for log_name in ['my_${exp.seed}', 'REMOVE', 'hello']: # 前面的參數為外層迴圈
-    for exp_seed in ['0', '1', '2']:                           # 後面的參數為內層迴圈
+for log_name in ['my_((exp.seed))', 'REMOVE', 'hello']: # 前面的參數為外層迴圈
+    for exp_seed in [0, 1, 2]:                         # 後面的參數為內層迴圈
         config = parser.parse_args([
-            "config.yaml", "--args",
+            "config.yaml",
             f"log.name={log_name}",
             f"exp.seed={exp_seed}"
         ])
@@ -954,14 +925,14 @@ for log_name in ['my_${exp.seed}', 'REMOVE', 'hello']: # 前面的參數為外�
         experiment.run(**config.run.kwargs)
 ```
 
-- 使用 `--sweep KEY=VAL1,VAL2,...` 語法指定參數和候選值
+- 使用 `--sweep key=<YAML list>` 語法指定參數和候選值。`<YAML list>` 為表示 list 的 YAML 字串
 - 可以同時指定多個參數，進行笛卡爾積組合
 - 參數順序決定遍歷的巢狀順序（前面的參數為外層迴圈）
 - 當使用 `--sweep` 時，`parse_args` 返回設置列表而非單一設置
 
 ## 複雜遍歷
 
-當需要實現複雜的參數組合邏輯，如某些參數必須同時出現或互斥時，使用複雜遍歷功能。透過自定義生成函式，可以精確控制哪些參數組合需要被測試。
+當需要實現複雜的參數組合邏輯，如某些參數必須同時出現或互斥時，使用複雜遍歷功能。透過 `--sweep` 參數指定自定義生成函式，可以精確控制哪些參數組合需要被測試。
 
 Given 定義自定義的參數組合生成函式
 
@@ -982,7 +953,7 @@ def my_sweep() -> Iterator[dict[str, Any]]:
 When 使用自定義函式進行遍歷
 
 ```bash
-python sweep.py config.yaml --sweep_fn mysweep.my_sweep
+python sweep.py config.yaml --sweep mysweep.my_sweep
 ```
 
 Then 系統按照自定義邏輯產生參數組合
@@ -995,7 +966,7 @@ for model_batch_size in [2, 4, 6]:
             continue  # 跳過特定組合
         
         config = parser.parse_args([
-            "config.yaml", "--args",
+            "config.yaml",
             f"model.batch_size={model_batch_size}",
             f"exp.seed={exp_seed}",
             f"log.name={name}"
@@ -1005,6 +976,7 @@ for model_batch_size in [2, 4, 6]:
 ```
 
 - 使用 `--sweep FUNCTION_PATH` 指定自定義的生成函式
+- 系統自動識別：如果 `--sweep` 後的參數只有一個且不包含 `=` 則為複雜遍歷的函式路徑
 - 生成函式應該 yield 包含參數覆寫的字典
 - 支援任意複雜的條件邏輯和參數依賴關係
 - 適合需要精細控制參數組合的進階應用場景

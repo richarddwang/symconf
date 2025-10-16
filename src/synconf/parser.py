@@ -8,7 +8,6 @@ from itertools import product
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
-from dotenv import load_dotenv
 
 from .config import SynConfig
 from .exceptions import ParameterValidationError
@@ -68,11 +67,11 @@ class SynConfParser:
             sys.exit(0)
 
         # Handle sweeping
-        if parsed_args.sweep_params or parsed_args.sweep_fn:
-            return self._handle_sweeping(parsed_args)
+        if parsed_args.sweep:
+            return self._handle_sweeping(parsed_args.sweep, parsed_args.configs)
 
         # Regular single configuration parsing
-        config = self._build_single_config(parsed_args)
+        config = self._build_config(parsed_args)
 
         # Show configuration if requested
         if parsed_args.print_config:
@@ -91,41 +90,18 @@ class SynConfParser:
             Parsed arguments namespace
         """
         parser = argparse.ArgumentParser(description="SynConf Configuration Parser")
-
-        # Positional arguments for YAML files
-        parser.add_argument("config_files", nargs="*", help="YAML configuration files")
-
-        # Optional arguments
-        parser.add_argument("--env", action="append", help="Dotenv file path")
-        parser.add_argument("--args", nargs="*", help="Parameter overrides (key=value)")
+        parser.add_argument(
+            "configs",
+            nargs="*",
+            help="YAML configuration file or parameter overwrites in format <key path>=<value in yaml>.",
+        )
         parser.add_argument("--print", dest="print_config", action="store_true", help="Print final configuration")
         parser.add_argument("--help.object", dest="help_object", help="Show object parameter help")
-        parser.add_argument("--sweep_fn", help="Custom sweep generator function")
+        parser.add_argument("--sweep", nargs="*", help="Custom sweep generator function")
+        args = parser.parse_args(args)
+        return args
 
-        # Parse known args to handle --sweep.* arguments
-        known_args, remaining = parser.parse_known_args(args)
-
-        # Parse sweep parameters
-        sweep_params = {}
-        i = 0
-        while i < len(remaining):
-            arg = remaining[i]
-            if arg.startswith("--sweep."):
-                param_name = arg[8:]  # Remove '--sweep.' prefix
-                values = []
-                i += 1
-                while i < len(remaining) and not remaining[i].startswith("--"):
-                    # Collect space-separated values
-                    values.append(remaining[i])
-                    i += 1
-                sweep_params[param_name] = values
-            else:
-                i += 1
-
-        known_args.sweep_params = sweep_params
-        return known_args
-
-    def _build_single_config(self, args: argparse.Namespace) -> SynConfig:
+    def _build_config(self, args: argparse.Namespace) -> SynConfig:
         """Build a single configuration from arguments.
 
         Args:
@@ -134,42 +110,39 @@ class SynConfParser:
         Returns:
             Built configuration  # (validated and processed SynConfig)
         """
-        # Step 1: Load YAML files and merge them
-        config = {}  # Dict[str, Any] (merged configuration)
-        for config_file in args.config_files:
-            with open(config_file, "r") as f:
-                file_config = load_yaml(f)
-                assert isinstance(file_config, dict), (
-                    f"Config file {config_file} must contain a YAML mapping at the top level."
-                )
-                # Deep merge configurations to handle nested structures
-                config = deep_merge(config, file_config)
+        config = {}  # Dict[str, Any]
 
-        # Load environment variables and update global environment
-        dotenv_files = args.env or []
-        for dotenv_file in dotenv_files:
-            assert load_dotenv(dotenv_file), f"Failed to load dotenv file: {dotenv_file}"
+        # Step 1: Load YAML files and paramter overwrites in order
+        for config_file_or_overwrite in args.configs:
+            if config_file_or_overwrite.endswith((".yaml", ".yml")):
+                # Load configuration file
+                config_file = config_file_or_overwrite
+                with open(config_file, "r") as f:
+                    file_config = load_yaml(f)
+                    assert isinstance(file_config, dict), (
+                        f"Config file {config_file} must contain a YAML mapping at the top level."
+                    )
+                    # Deep merge configurations to handle nested structures
+                    config = deep_merge(config, file_config)
+            else:
+                # Handle parameter overwrite
+                config_overwrite = config_file_or_overwrite
+                key, value_str = config_overwrite.split("=", 1)
+                self._set_nested_value(config, key, load_yaml(value_str))
 
-        # Step 2: Apply command line overrides
-        if args.args:
-            yaml_content = "\n".join(arg.replace("=", ": ") for arg in args.args)
-            args_config = load_yaml(yaml_content)
-            for key, value in args_config.items():
-                self._set_nested_value(config, key, value)
-
-        # Step 3: Remove parameters marked as REMOVE
+        # Step 2: Remove parameters marked as REMOVE
         config = remove_parameters(config)
 
-        # Step 4: Complete default values for objects with TYPE
+        # Step 3: Complete default values for objects with TYPE
         config = self._complete_default_values(config)
 
-        # Step 5: Resolve interpolations (variable references)
+        # Step 4: Resolve interpolations (variable references)
         config = InterpolationEngine(config).resolve_all_interpolations()
 
-        # Step 6: Process LIST types (convert LIST markers to actual lists)
+        # Step 5: Process LIST types (convert LIST markers to actual lists)
         config = process_list_type(config)
 
-        # Step 7: Validate configuration against object signatures
+        # Step 6: Validate configuration against object signatures
         if self.validate_type or self.validate_mapping:
             self._validate_configuration(config)
 
@@ -264,80 +237,38 @@ class SynConfParser:
         if errors:
             raise ParameterValidationError(errors)
 
-    def _handle_sweeping(self, args: argparse.Namespace) -> List[SynConfig]:
+    def _handle_sweeping(self, sweep_args: List[str], config_args: list[str]) -> List[SynConfig]:
         """Handle parameter sweeping.
 
         Args:
-            args: Parsed arguments with sweep parameters
-
+            sweep_args: Arguments of --sweep
+            config_args: Arguments for original basic configuration files and overrides
         Returns:
             List of configurations for different parameter combinations
         """
-        if args.sweep_fn:
-            return self._handle_custom_sweeping(args)
+        # Get generator generates list of <key>=<value> pairs (list[str])
+        if len(sweep_args) > 0 and "=" not in sweep_args[0]:
+            # Complex sweeping: through customized generator function. e.g., --sweep my_module.my_function
+            generator_fn = import_object(sweep_args[0])
+            pair_strs_generator = generator_fn()
         else:
-            return self._handle_simple_sweeping(args)
+            # Simple sweeping: through multiple key-values pairs. e.g., --sweep key1=[v1,v2] key2=[v3,v4]
+            nested_pairs: list[list[str]] = []  # (#parameters, #possible values)
+            for sweep_arg in sweep_args:
+                key, values_str = sweep_arg.split("=", 1)
+                value_strs = values_str.replace("[", "").replace("]", "").replace(" ", "").split(",")
+                pair_strs = [f"{key}={v}" for v in value_strs]
+                nested_pairs.append(pair_strs)
+            pair_strs_generator = product(*nested_pairs)
 
-    def _handle_simple_sweeping(self, args: argparse.Namespace) -> List[SynConfig]:
-        """Handle simple parameter sweeping.
-
-        Args:
-            args: Parsed arguments with sweep parameters
-
-        Returns:
-            List of configurations
-        """
-        base_config_args = argparse.Namespace(**vars(args))
-        base_config_args.sweep_params = {}
-        base_config_args.sweep_fn = None
-
-        # Generate all parameter combinations
-        param_names = list(args.sweep_params.keys())
-        param_values = list(args.sweep_params.values())
-
+        # Build configurations for all combinations
         configs = []
-        for combination in product(*param_values):
+        for pair_strs in pair_strs_generator:
             # Create modified args for this combination
-            modified_args = argparse.Namespace(**vars(base_config_args))
-            additional_args = []
-            for param_name, value in zip(param_names, combination):
-                additional_args.append(f"{param_name}={value}")
+            extended_args = config_args + list(pair_strs)
 
-            # Handle case where original args is None (no --args provided)
-            existing_args = modified_args.args if modified_args.args is not None else []
-            modified_args.args = list(existing_args) + additional_args
-            config = self._build_single_config(modified_args)
-            configs.append(config)
-
-        return configs
-
-    def _handle_custom_sweeping(self, args: argparse.Namespace) -> List[SynConfig]:
-        """Handle custom parameter sweeping.
-
-        Args:
-            args: Parsed arguments with custom sweep function
-
-        Returns:
-            List of configurations
-        """
-        # Import the custom generator function
-        generator_func = import_object(args.sweep_fn)
-
-        base_config_args = argparse.Namespace(**vars(args))
-        base_config_args.sweep_params = {}
-        base_config_args.sweep_fn = None
-
-        configs = []
-        for param_overrides in generator_func():
-            # Create modified args for this override set
-            modified_args = argparse.Namespace(**vars(base_config_args))
-            additional_args = []
-            for param_name, value in param_overrides.items():
-                additional_args.append(f"{param_name}={value}")
-
-            existing_args = modified_args.args if modified_args.args is not None else []
-            modified_args.args = list(existing_args) + additional_args
-            config = self._build_single_config(modified_args)
+            # Build configuration for this combination
+            config = self.parse_args(extended_args)
             configs.append(config)
 
         return configs
