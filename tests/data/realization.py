@@ -111,6 +111,7 @@ class Experiment:
         """
         return {"F1": 0.9, "Precision": 0.95}
 
+
 class DataProcessor:
     """Test class for manual instance method realization."""
 

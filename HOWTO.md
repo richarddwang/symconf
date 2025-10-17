@@ -182,30 +182,25 @@ Given 展示三種插值和遞迴引用的綜合範例
 
 ```yaml
 dataset:
-    name: cifar10
-    num_classes: ((BASE_FEATURE_SIZE))       # 間接引用環境變數
-    
+    num_classes: 10
 model:
     # 參數插值（直接引用）
     output_features: ((dataset.num_classes))
-    
-    # 嵌入字串中使用
-    name: model_((dataset.name))_h=((model.hidden_dim))
-    
+
     # 環境變數插值
     hidden_dim: ((FEATURE_SIZE))
 
     # 表達式插值
-    dropout: ((0.1 if max(`dataset.num_classes` * 2, 2) < 5 else 0.0))
+    dropout: ((int("`FEATURE_SIZE`"[1]) / `output_features`))
     
-# 遞迴引用：引用其他計算結果
-total_params: ((`model.hidden_dim` + `model.output_features`))
+# 嵌入字串中使用 / 遞回引用
+name: model_f=((model.output_features))_h=((model.hidden_dim))
 ```
 
 And 設定環境變數
 
 ```bash
-export FEATURE_SIZE=10
+export FEATURE_SIZE=64
 ```
 
 When 解析設置
@@ -215,16 +210,14 @@ Then 所有插值被遞迴解析為實際值
 ```python
 {
     'dataset': {
-        'name': 'cifar10',
-        'num_classes': 10        # 環境變數插值: BASE_FEATURE_SIZE
+        'num_classes': 10
     },
     'model': {
-        'output_features': 10,           # 參數插值: dataset.num_classes
-        'name': 'model_cifar10_h=10',     # 字串嵌入: dataset.name + multiplier
-        'hidden_dim': 10,               # 環境變數插值: FEATURE_SIZE  
-        'dropout': 0.0,                 # 表達式插值: max(10*2, 2) = 20, 20 < 5 = False
+        'output_features': 10,          # 參數插值: dataset.num_classes
+        'hidden_dim': 64,               # 環境變數插值 FEATURE_SIZE
+        'dropout': 0.4,                 # 表達式插值: int("64"[1])/10
     },
-    'total_params': 20                  # 遞迴引用: 10 + 10
+    'name': 'model_f=10_h=64'           # 字串嵌入/遞迴引用 (引用的 model.output_features 引用了 dataset.num_classes)
 }
 ```
 

@@ -140,28 +140,22 @@ def test_step4_variable_interpolation_comprehensive(temp_dir: Path):
     - 表達式插值 ((... `variable` ...)): executing Python expressions with backtick variables
     """
     # Set environment variables as in HOWTO.md example
-    set_env_vars(BASE_FEATURE_SIZE="10", FEATURE_SIZE="10")
+    set_env_vars(FEATURE_SIZE="64")
 
     try:
-        # Following the exact HOWTO.md Step 4 comprehensive example with NEW syntax
+        # Following the exact HOWTO.md Step 4 comprehensive example
         config_data = {
-            # 遞迴引用：引用其他計算結果
-            "total_params": "((`model.hidden_dim` + `model.output_features`))",
-            "dataset": {
-                "name": "cifar10",
-                "num_classes": "((BASE_FEATURE_SIZE))",  # 間接引用環境變數
-            },
+            "dataset": {"num_classes": 10},
             "model": {
                 # 參數插值（直接引用）
                 "output_features": "((dataset.num_classes))",
-                # 嵌入字串中使用
-                "name": "model_((dataset.name))_h=((model.hidden_dim))",
                 # 環境變數插值
                 "hidden_dim": "((FEATURE_SIZE))",
                 # 表達式插值
-                "dropout": "((0.1 if max(`dataset.num_classes` * 2, 2) < 5 else 0.0))",
-                "multiplier": "((`dataset.num_classes` * 2 + `FEATURE_SIZE`))",
+                "dropout": '((int("`FEATURE_SIZE`"[1]) / `model.output_features`))',
             },
+            # 嵌入字串中使用 / 遞回引用
+            "name": "model_f=((model.output_features))_h=((model.hidden_dim))",
         }
         config_path = temp_dir / "config.yaml"
         write_yaml_file(config_path, config_data)
@@ -170,15 +164,15 @@ def test_step4_variable_interpolation_comprehensive(temp_dir: Path):
         config = parser.parse_args([str(config_path)])
 
         # Verify all interpolation types work as expected from HOWTO.md
-        assert config.dataset.name == "cifar10"
-        assert config.dataset.num_classes == 10  # 環境變數插值: BASE_FEATURE_SIZE
+        assert config.dataset.num_classes == 10  # 原始值
 
         assert config.model.output_features == 10  # 參數插值: dataset.num_classes
-        assert config.model.name == "model_cifar10_h=10"  # 字串嵌入: dataset.name + multiplier
-        assert config.model.hidden_dim == 10  # 環境變數插值: FEATURE_SIZE
-        assert config.model.dropout == 0.0  # 表達式插值: max(10*2, 2) = 20, 20 < 5 = False
-        assert config.model.multiplier == 30  # 表達式插值: 10*2 + 10 = 30
-        assert config.total_params == 20  # 遞迴引用: 10 + 10
+        assert (
+            config.model.hidden_dim == 64
+        )  # 環境變數插值: FEATURE_SIZE。環境變數在是 str 類型，但插值結果會被 YAML 讀取，因此會自動轉換為適當的型別
+        assert config.model.dropout == 0.4  # 表達式插值: 4 / 10 = 0.4
+
+        assert config.name == "model_f=10_h=64"  # 字串嵌入/遞迴引用
 
     finally:
         cleanup_env_vars("FEATURE_SIZE")

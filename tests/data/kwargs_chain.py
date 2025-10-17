@@ -8,6 +8,7 @@ class BClass:
             g: 猩猩
         """
 
+
 def func(f: int = 5, **kwargs):
     """
     Args:
@@ -16,16 +17,19 @@ def func(f: int = 5, **kwargs):
     b = BClass()
     b.my_method(**kwargs)
 
+
 class AClass:
-    @classmethod  
+    @classmethod
     def create(cls, e="hi", **kwargs) -> "AClass":
         func(**kwargs)
         ...
+
 
 class Parent:
     def __init__(self, a, b: Literal["cat", "dog"], c, **kwargs):
         AClass.create(**kwargs)
 
+
 class Child(Parent):
     def __init__(self, d, **kwargs):
-        super().__init__(a=3, c=d*5, **kwargs)
+        super().__init__(a=3, c=d * 5, **kwargs)

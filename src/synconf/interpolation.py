@@ -100,7 +100,8 @@ class InterpolationEngine:
                 replacement = self._resolve_match(match)
                 result = result.replace(f"(({match}))", str(replacement))
 
-            # Try to convert to appropriate type
+        # Just like it is written in yaml, convert to appropriate type if possible
+        if isinstance(result, str):
             result = load_yaml(result)
 
         self.resolving.discard(key_path)
@@ -195,8 +196,7 @@ class InterpolationEngine:
 
         # Check if this is an environment variable (all uppercase convention)
         if key_path.isupper():
-            raw_value = os.environ[key_path]
-            return load_yaml(raw_value)
+            return os.environ[key_path]
 
         # Get raw value from config
         raw_value = self._get_raw_value_for_param(key_path)
